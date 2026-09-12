@@ -1,0 +1,5 @@
+{"question": "What visual prompt length does TMPT report as optimal?", "answerable": true, "expected_pages": [{"source": "tmpt.pdf", "page": 7}]}
+{"question": "Which datasets does the paper evaluate on?", "answerable": true, "expected_pages": [{"source": "tmpt.pdf", "page": 4}]}
+{"question": "What was the 2024 revenue of Nvidia's data centre segment?", "answerable": false}
+{"question": "How does the paper handle class imbalance in the neutral class?", "answerable": true, "expected_pages": [{"source": "tmpt.pdf", "page": 5}]}
+{"question": "What learning rate does the BLIP-2 paper use for stage two?", "answerable": false}

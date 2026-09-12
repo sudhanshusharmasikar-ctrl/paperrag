@@ -1,0 +1,81 @@
+# PaperRAG
+
+Citation-grounded retrieval over research papers. Every answer cites the source
+file and page it came from, and the system refuses to answer when retrieval is
+too weak to support one.
+
+## Quickstart
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env          # defaults need no API key
+cp data/pdfs/                 # drop your PDFs here
+python -m app.index           # build the FAISS index
+
+uvicorn app.api:app --reload  # terminal 1
+streamlit run ui/streamlit_app.py   # terminal 2
+```
+
+## How it works
+
+```
+PDF ─► PyMuPDF blocks ─► page-bounded chunks ─► MiniLM embeddings
+                                                      │
+                                                      ▼
+question ─► embed ─► FAISS (exact cosine) ─► top-k ─► guard ─► answer + citations
+                                                       │
+                                                       └─► abstain
+```
+
+Chunks never cross a page boundary, which is what makes page-level citation
+possible at all. Blocks are sorted top-to-bottom then left-to-right, so
+two-column papers come out in reading order.
+
+## Design decisions
+
+| Choice | Why | What was rejected |
+|---|---|---|
+| `IndexFlatIP` (exact) | Tens of thousands of vectors search in single-digit ms | IVF/HNSW — recall loss and tuning knobs to solve a speed problem this corpus doesn't have |
+| MiniLM-L6-v2 (384d) | ~80MB, CPU-fast, deploys on a free tier | Larger embedders — better recall, but the demo stops being deployable |
+| Chunk at block level | Preserves page number and reading order | Fixed-size split over the whole document — destroys citability |
+| Threshold on top-1 | Mean-of-top-k drifts with k, making the threshold silently k-dependent | Mean or median scoring |
+| `extractive` default | Zero keys, zero cost, and a 100%-faithful control condition | LLM-only — no baseline to compare faithfulness against |
+
+Two independent guards: retrieval-side (similarity below threshold) and
+generation-side (model emits `INSUFFICIENT_CONTEXT`). They catch different
+failures — the first catches off-topic questions, the second catches questions
+where the passages are on-topic but don't contain the answer.
+
+## Known limitations
+
+- Scanned PDFs with no text layer produce zero chunks and are skipped. OCR is
+  not implemented.
+- Tables and figures are dropped by the noise filter, so numeric questions that
+  only appear in a table will fail.
+- No reranker. A cross-encoder over the top-20 would likely improve precision;
+  it was not needed to hit acceptable citation hit-rate on this corpus.
+
+## Evaluation
+
+Numbers in the results table below must come from `eval/run_eval.py` on a
+question set you write yourself. See the docstring in that file.
+
+```bash
+python -m eval.run_eval --sweep              # pick a threshold
+python -m eval.run_eval --threshold 0.42     # final table
+```
+
+| Metric | Value |
+|---|---|
+| Corpus | _N_ PDFs, _N_ chunks |
+| Eval set | _N_ questions (_N_ answerable, _N_ unanswerable) |
+| Unsupported answers, no guard | _N_% |
+| Unsupported answers, with guard | _N_% |
+| False refusal rate | _N_% |
+| Citation hit rate | _N_% |
+| p95 latency (CPU) | _N_ ms |
+
+Fill these in from your own run. Do not put this project on a resume until
+this table has real numbers in it.
