@@ -17,7 +17,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterator
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF; the bare "fitz" import name is deprecated
 
 from .config import CHUNK_CHARS, CHUNK_OVERLAP, MIN_CHUNK_CHARS
 
