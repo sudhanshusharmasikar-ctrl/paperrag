@@ -7,11 +7,11 @@ too weak to support one.
 ## Quickstart
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate   # Python 3.11 or newer
+pip install -r requirements.txt   # pinned, tested versions
 
 cp .env.example .env          # defaults need no API key
-cp data/pdfs/                 # drop your PDFs here
+mkdir -p data/pdfs && cp /path/to/your/papers/*.pdf data/pdfs/
 python -m app.index           # build the FAISS index
 
 uvicorn app.api:app --reload  # terminal 1
