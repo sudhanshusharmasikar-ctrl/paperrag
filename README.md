@@ -18,6 +18,22 @@ uvicorn app.api:app --reload  # terminal 1
 streamlit run ui/streamlit_app.py   # terminal 2
 ```
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+The tests run offline in a few seconds: a small bag-of-words embedder stands
+in for MiniLM, and the tests generate their own PDFs. They cover text cleaning
+and chunking, the index files, the abstention guard, answer formatting, the
+API and the eval arithmetic. Retrieval *quality* is measured by
+`eval/run_eval.py`, not by these tests.
+
+Two tests are marked `xfail` (expected to fail): they describe the known
+chunking bugs listed under [Known limitations](#known-limitations).
+
 ## How it works
 
 ```
@@ -30,8 +46,7 @@ question ─► embed ─► FAISS (exact cosine) ─► top-k ─► guard ─�
 ```
 
 Chunks never cross a page boundary, which is what makes page-level citation
-possible at all. Blocks are sorted top-to-bottom then left-to-right, so
-two-column papers come out in reading order.
+possible at all.
 
 ## Design decisions
 
@@ -50,6 +65,10 @@ where the passages are on-topic but don't contain the answer.
 
 ## Known limitations
 
+- Two-column pages: blocks are sorted top-to-bottom, then left-to-right, which
+  interleaves the two columns when their paragraphs start at different heights.
+- The overlap carried into a new chunk isn't counted against `CHUNK_CHARS`, so
+  a chunk that starts with a long paragraph can run up to ~150 characters over.
 - Scanned PDFs with no text layer produce zero chunks and are skipped. OCR is
   not implemented.
 - Tables and figures are dropped by the noise filter, so numeric questions that
