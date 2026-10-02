@@ -1,0 +1,4 @@
+# Test tools, on top of the app's own pinned requirements.
+-r requirements.txt
+pytest==9.1.1
+httpx2==2.13.1   # FastAPI's TestClient needs it (newer Starlette prefers httpx2 over httpx)
