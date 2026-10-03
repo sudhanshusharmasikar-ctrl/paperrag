@@ -1,11 +1,11 @@
 """
 Chunking: text cleaning, the noise filter, reading order on one- and two-column
 pages, packing blocks into chunks, and the page number every chunk carries.
-The last test describes a known bug.
 """
 import pymupdf as fitz
 import pytest
 
+from app import chunking
 from app.chunking import _is_noise, _pack, chunk_pdf, clean, page_blocks
 from app.config import CHUNK_CHARS, CHUNK_OVERLAP, MIN_CHUNK_CHARS
 
@@ -106,6 +106,23 @@ def test_pack_splits_an_oversized_paragraph_at_sentence_ends():
     assert all(c.endswith(".") for c in chunks)
 
 
+def test_overlap_shrinks_so_a_long_paragraph_still_fits():
+    blocks = [("first " * 80).strip(), ("second " * 120).strip()]  # 479 and 839 characters
+    first, second = _pack(blocks)
+    assert len(second) <= CHUNK_CHARS
+    carried = len(second) - len(blocks[1]) - 1  # the overlap at the start of `second`
+    assert 0 < carried < CHUNK_OVERLAP
+    assert second[:carried] == first[-carried:]
+
+
+def test_zero_overlap_repeats_nothing(monkeypatch):
+    monkeypatch.setattr(chunking, "CHUNK_OVERLAP", 0)
+    blocks = [(f"Paragraph {i} " + "word " * 60).strip() for i in range(6)]
+    chunks = list(_pack(blocks))
+    assert all(len(c) <= CHUNK_CHARS for c in chunks)
+    assert " ".join(chunks) == " ".join(blocks)  # every block exactly once
+
+
 # ------------------------------------------------------------------ whole PDFs
 def test_chunk_pdf_gives_each_chunk_exactly_one_page(make_pdf):
     path = make_pdf("paper.pdf", [[f"Alpha page. {PARA}"], [f"Omega page. {PARA}"]])
@@ -120,16 +137,3 @@ def test_chunk_pdf_skips_pages_without_usable_text(make_pdf):
     assert len(caption) < MIN_CHUNK_CHARS
     path = make_pdf("paper.pdf", [[], [caption], [PARA]])  # blank, too short, real text
     assert [c.page for c in chunk_pdf(path)] == [3]
-
-
-# ------------------------------------------------------------------ known bugs
-# xfail = "expected to fail": this test describes a bug that is not fixed yet.
-# strict=True turns an unexpected pass into a failure, so whoever fixes the bug
-# has to remove the marker in the same change.
-
-
-@pytest.mark.xfail(strict=True, reason="known bug: the overlap carried into a new chunk "
-                   "isn't counted, so a long paragraph can push a chunk past CHUNK_CHARS")
-def test_overlap_never_pushes_a_chunk_past_the_limit():
-    blocks = ["first " * 80, "second " * 120]  # ~480 and ~840 characters
-    assert all(len(c) <= CHUNK_CHARS for c in _pack(blocks))

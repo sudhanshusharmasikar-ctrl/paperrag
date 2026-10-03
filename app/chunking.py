@@ -116,11 +116,26 @@ def page_blocks(page: "fitz.Page") -> list[str]:
     return out
 
 
+def _overlap(chunk: str, next_len: int) -> str:
+    """
+    The end of `chunk` to repeat at the start of the next chunk: CHUNK_OVERLAP
+    characters, or fewer when the next piece is long, so the new chunk still
+    fits in CHUNK_CHARS.
+    """
+    n = min(CHUNK_OVERLAP, CHUNK_CHARS - next_len - 1)  # -1 for the joining space
+    # not chunk[-n:], because chunk[-0:] is the whole chunk
+    return chunk[len(chunk) - n:] if n > 0 else ""
+
+
 def _pack(blocks: list[str]) -> Iterator[str]:
     """
-    Greedily pack whole blocks into chunks of at most CHUNK_CHARS, carrying
-    CHUNK_OVERLAP characters of the previous chunk forward so a sentence split
-    across a chunk edge is still retrievable from at least one side.
+    Greedily pack whole blocks into chunks of at most CHUNK_CHARS, carrying the
+    end of the previous chunk forward (see _overlap) so a sentence split across
+    a chunk edge is still retrievable from at least one side. Only a single
+    sentence longer than CHUNK_CHARS can make a longer chunk.
+
+    `size` and `cur_len` count every piece plus the space that follows it, i.e.
+    the joined chunk's length + 1.
     """
     buf: list[str] = []
     size = 0
@@ -136,9 +151,11 @@ def _pack(blocks: list[str]) -> Iterator[str]:
             cur_len = 0
             for s in sentences:
                 if cur_len + len(s) > CHUNK_CHARS and cur:
-                    yield " ".join(cur)
-                    tail = " ".join(cur)[-CHUNK_OVERLAP:]
-                    cur, cur_len = [tail, s], len(tail) + len(s)
+                    chunk = " ".join(cur)
+                    yield chunk
+                    tail = _overlap(chunk, len(s))
+                    cur = [tail, s] if tail else [s]
+                    cur_len = len(" ".join(cur)) + 1
                 else:
                     cur.append(s)
                     cur_len += len(s) + 1
@@ -149,8 +166,9 @@ def _pack(blocks: list[str]) -> Iterator[str]:
         if size + len(block) > CHUNK_CHARS and buf:
             chunk = " ".join(buf)
             yield chunk
-            tail = chunk[-CHUNK_OVERLAP:]
-            buf, size = [tail, block], len(tail) + len(block)
+            tail = _overlap(chunk, len(block))
+            buf = [tail, block] if tail else [block]
+            size = len(" ".join(buf)) + 1
         else:
             buf.append(block)
             size += len(block) + 1
