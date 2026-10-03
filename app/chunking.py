@@ -6,20 +6,22 @@ That destroys page boundaries, so you can never cite a page, and it happily
 splices the end of a two-column page into the start of the next one.
 
 This module instead walks PyMuPDF text *blocks*. A block is roughly a visual
-paragraph, and PyMuPDF returns them in reading order per page, which handles
-two-column layouts correctly. Chunks are then assembled from whole blocks and
-never cross a page boundary, so every chunk carries exactly one page number.
+paragraph. PyMuPDF's own block order doesn't follow columns, so _reading_order
+sorts each page's blocks column by column on two-column pages. Chunks are then
+assembled from whole blocks and never cross a page boundary, so every chunk
+carries exactly one page number.
 """
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterator
 
 import pymupdf as fitz  # PyMuPDF; the bare "fitz" import name is deprecated
 
-from .config import CHUNK_CHARS, CHUNK_OVERLAP, MIN_CHUNK_CHARS
+from .config import CHUNK_CHARS, CHUNK_OVERLAP, COLUMN_TOLERANCE, MIN_CHUNK_CHARS
 
 
 @dataclass
@@ -65,14 +67,49 @@ def _is_noise(block_text: str) -> bool:
     return alpha / max(len(t), 1) < 0.45
 
 
+def _reading_order(blocks: list, mid: float) -> list:
+    """
+    Sort one page's blocks into reading order, for one- and two-column pages.
+
+    A block that crosses the middle of the page (title, abstract, a wide figure
+    caption) splits the page into horizontal bands. Inside each band the left
+    column is read top to bottom, then the right column. On a one-column page
+    almost every block crosses the middle, so this is plain top-to-bottom.
+    """
+    def side(b) -> int:  # -1 left column, 1 right column, 0 crosses the middle
+        x0, x1 = b[0], b[2]
+        if x1 <= mid + COLUMN_TOLERANCE:
+            return -1
+        if x0 >= mid - COLUMN_TOLERANCE:
+            return 1
+        return 0
+
+    def top_left(b):
+        return (round(b[1], 1), round(b[0], 1))
+
+    wide = sorted((b for b in blocks if side(b) == 0), key=top_left)
+    tops = [b[1] for b in wide]
+    bands: list[list] = [[] for _ in range(len(wide) + 1)]
+    for b in blocks:
+        if side(b) != 0:
+            bands[bisect_right(tops, b[1])].append(b)  # band = wide blocks above it
+
+    ordered = []
+    for i, band in enumerate(bands):
+        if i > 0:
+            ordered.append(wide[i - 1])
+        ordered += sorted((b for b in band if side(b) < 0), key=top_left)
+        ordered += sorted((b for b in band if side(b) > 0), key=top_left)
+    return ordered
+
+
 def page_blocks(page: "fitz.Page") -> list[str]:
     """Text blocks on one page, in reading order, cleaned and de-noised."""
     raw = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
     text_blocks = [b for b in raw if len(b) > 6 and b[6] == 0]
-    # sort top-to-bottom, then left-to-right; handles two-column papers
-    text_blocks.sort(key=lambda b: (round(b[1], 1), round(b[0], 1)))
+    mid = (page.rect.x0 + page.rect.x1) / 2
     out = []
-    for b in text_blocks:
+    for b in _reading_order(text_blocks, mid):
         t = clean(b[4])
         if t and not _is_noise(t):
             out.append(t)

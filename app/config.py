@@ -24,6 +24,12 @@ CHUNK_CHARS = int(os.getenv("PAPERRAG_CHUNK_CHARS", 900))
 CHUNK_OVERLAP = int(os.getenv("PAPERRAG_CHUNK_OVERLAP", 150))
 MIN_CHUNK_CHARS = 120  # drop headers, page numbers, stray figure labels
 
+# Two-column pages: a text block counts as sitting in one column if it reaches
+# no more than this many points (1/72 inch) past the middle of the page. Column
+# text stops short of the middle; full-width text (title, abstract, a wide
+# caption) crosses it by hundreds of points, so 20 is a generous margin.
+COLUMN_TOLERANCE = 20
+
 # ---------- embedding ----------
 # all-MiniLM-L6-v2: 384-dim, ~80MB, runs on CPU in milliseconds.
 # Chosen over larger models because this whole thing must deploy on a free tier.
