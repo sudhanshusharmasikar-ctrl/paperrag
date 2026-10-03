@@ -31,9 +31,6 @@ and chunking, the index files, the abstention guard, answer formatting, the
 API and the eval arithmetic. Retrieval *quality* is measured by
 `eval/run_eval.py`, not by these tests.
 
-Two tests are marked `xfail` (expected to fail): they describe the known
-chunking bugs listed under [Known limitations](#known-limitations).
-
 ## How it works
 
 ```
@@ -46,7 +43,10 @@ question ─► embed ─► FAISS (exact cosine) ─► top-k ─► guard ─�
 ```
 
 Chunks never cross a page boundary, which is what makes page-level citation
-possible at all.
+possible at all. Two-column pages are read column by column: a block that
+crosses the middle of the page (title, abstract, a wide figure caption) splits
+the page into bands, and inside each band the left column is read before the
+right one.
 
 ## Design decisions
 
@@ -65,10 +65,8 @@ where the passages are on-topic but don't contain the answer.
 
 ## Known limitations
 
-- Two-column pages: blocks are sorted top-to-bottom, then left-to-right, which
-  interleaves the two columns when their paragraphs start at different heights.
-- The overlap carried into a new chunk isn't counted against `CHUNK_CHARS`, so
-  a chunk that starts with a long paragraph can run up to ~150 characters over.
+- Pages with three or more columns aren't put in reading order.
+- A single sentence longer than `CHUNK_CHARS` still becomes one oversized chunk.
 - Scanned PDFs with no text layer produce zero chunks and are skipped. OCR is
   not implemented.
 - Tables and figures are dropped by the noise filter, so numeric questions that
