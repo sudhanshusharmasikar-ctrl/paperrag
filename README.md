@@ -30,8 +30,9 @@ pytest
 The tests run offline in a few seconds: a small bag-of-words embedder stands
 in for MiniLM, and the tests generate their own PDFs. They cover text cleaning
 and chunking, the index files, the abstention guard, answer formatting, the
-API and the eval arithmetic. Retrieval *quality* is measured by
-`eval/run_eval.py`, not by these tests.
+API, the eval arithmetic, the question checker and reading settings from
+`.env`. Retrieval *quality* is measured by `eval/run_eval.py`, not by these
+tests.
 
 GitHub Actions runs the same tests after every push, on Python 3.11 and 3.14
 (see `.github/workflows/tests.yml`). The badge at the top shows the result
@@ -82,13 +83,31 @@ where the passages are on-topic but don't contain the answer.
 
 ## Evaluation
 
-Numbers in the results table below must come from `eval/run_eval.py` on a
-question set you write yourself. See the docstring in that file.
+`eval/questions.jsonl` holds 51 questions about 8 papers: the Transformer,
+BERT, BERTweet, ViT and CLIP papers, and three papers on multimodal stance
+detection. 34 are answerable; each names the page that answers it and carries
+a short evidence phrase copied from that page. 17 are unanswerable: on topic,
+but about models that none of the 8 papers mention. The questions were drafted
+from passages sampled across all 8 papers and checked by hand against the
+PDFs. Because they start from the papers' own passages, the citation hit rate
+may be higher than it would be with real users' questions.
+
+The PDFs aren't in this repository. Put them in `data/pdfs/` (or point
+`PAPERRAG_PDF_DIR` at their folder) under the names the questions use:
+`attention.pdf`, `bert.pdf`, `bertweet.pdf`, `clip.pdf`, `multimodal.pdf`,
+`multiturn.pdf`, `tmad.pdf` and `vit.pdf`. Then:
 
 ```bash
+python -m app.index                          # index the papers
+python -m eval.check_questions               # answers are on their pages; no paper answers an unanswerable one
 python -m eval.run_eval --sweep              # pick a threshold
 python -m eval.run_eval --threshold 0.42     # final table
 ```
+
+A citation counts as correct when it points to the page listed for the
+question, or to another page of the same paper that contains the same evidence
+phrase (`check_questions` lists those pages). Latency is the time to embed a
+question and search the index on CPU, measured after one warm-up question.
 
 | Metric | Value |
 |---|---|

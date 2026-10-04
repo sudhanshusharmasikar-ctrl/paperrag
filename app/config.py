@@ -8,7 +8,14 @@ you can sweep them from the eval script without editing code.
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).resolve().parent.parent
+
+# Read settings from a .env file in the project folder, if there is one
+# (cp .env.example .env). A variable already set in your shell wins over the
+# file, so you can still change a setting for a single command.
+load_dotenv(ROOT / ".env")
 
 # ---------- paths ----------
 PDF_DIR = Path(os.getenv("PAPERRAG_PDF_DIR", ROOT / "data" / "pdfs"))

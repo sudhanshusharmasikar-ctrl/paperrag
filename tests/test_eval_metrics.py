@@ -32,3 +32,4 @@ def test_metrics_on_a_hand_checked_example():
     assert m["unsupported_after_pct"] == 10.0   # only u0 gets through: 1 of 10
     assert m["false_refusal_pct"] == 16.7       # a0: 1 of 6 answerable
     assert m["citation_hit_rate_pct"] == 80.0   # right page in 4 of the 5 answered
+    assert 0 <= m["latency_ms_p50"] <= m["latency_ms_p95"]  # timed, even if tiny here

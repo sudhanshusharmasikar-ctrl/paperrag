@@ -1,0 +1,51 @@
+{"question": "What other name does the Transformer paper give to self-attention?", "answerable": true, "expected_pages": [{"source": "attention.pdf", "page": 2}], "answer": "intra-attention", "evidence": "sometimes called intra-attention"}
+{"question": "What is the attention in end-to-end memory networks based on?", "answerable": true, "expected_pages": [{"source": "attention.pdf", "page": 2}], "answer": "a recurrent attention mechanism", "evidence": "based on a recurrent attention mechanism"}
+{"question": "If self-attention only looked at a neighbourhood of size r, what would the maximum path length become?", "answerable": true, "expected_pages": [{"source": "attention.pdf", "page": 7}], "answer": "O(n/r)", "evidence": "maximum path length to O(n/r)"}
+{"question": "When is a self-attention layer cheaper than a recurrent layer?", "answerable": true, "expected_pages": [{"source": "attention.pdf", "page": 7}], "answer": "when the sequence length n is smaller than the representation dimension d", "evidence": "smaller than the representation dimensionality d"}
+{"question": "How big is BERT's WordPiece vocabulary?", "answerable": true, "expected_pages": [{"source": "bert.pdf", "page": 4}], "answer": "30,000 tokens", "evidence": "30,000 token vocabulary"}
+{"question": "In BERT, which token's final hidden state represents the whole sequence for classification?", "answerable": true, "expected_pages": [{"source": "bert.pdf", "page": 4}], "answer": "[CLS]", "evidence": "aggregate sequence representation"}
+{"question": "Apart from the [SEP] token, how does BERT mark which sentence a token belongs to?", "answerable": true, "expected_pages": [{"source": "bert.pdf", "page": 4}], "answer": "a learned embedding for sentence A or B, added to every token", "evidence": "belongs to sentence A or sentence B"}
+{"question": "How many parameters do BERT-Base and BERT-Large have?", "answerable": true, "expected_pages": [{"source": "bert.pdf", "page": 8}], "answer": "110M and 340M", "evidence": "340M"}
+{"question": "On what hardware and for how long was BERT-Large pre-trained?", "answerable": true, "expected_pages": [{"source": "bert.pdf", "page": 13}], "answer": "16 Cloud TPUs (64 TPU chips) for 4 days", "evidence": "64 TPU chips"}
+{"question": "Which sequence lengths does BERT pre-train with, and for what share of the steps?", "answerable": true, "expected_pages": [{"source": "bert.pdf", "page": 13}], "answer": "128 for 90% of the steps, then 512 for the rest", "evidence": "128 for 90% of the steps"}
+{"question": "How long can a tweet be in BERTweet's pre-training data?", "answerable": true, "expected_pages": [{"source": "bertweet.pdf", "page": 2}], "answer": "between 10 and 64 word tokens", "evidence": "at most 64 word tokens"}
+{"question": "How many English tweets are in BERTweet's first corpus?", "answerable": true, "expected_pages": [{"source": "bertweet.pdf", "page": 2}], "answer": "845M", "evidence": "845M English Tweets"}
+{"question": "What do user mentions and links become in BERTweet's preprocessing?", "answerable": true, "expected_pages": [{"source": "bertweet.pdf", "page": 2}], "answer": "the special tokens @USER and HTTPURL", "evidence": "@USER and HTTPURL"}
+{"question": "In a batch of N image-text pairs, how many wrong pairings does CLIP push apart?", "answerable": true, "expected_pages": [{"source": "clip.pdf", "page": 4}], "answer": "N^2 - N", "evidence": "incorrect pairings"}
+{"question": "Which loss does CLIP optimise over its similarity scores?", "answerable": true, "expected_pages": [{"source": "clip.pdf", "page": 4}], "answer": "a symmetric cross-entropy loss", "evidence": "symmetric cross entropy loss"}
+{"question": "Under what name was CLIP's batch objective popularised by Oord et al.?", "answerable": true, "expected_pages": [{"source": "clip.pdf", "page": 4}], "answer": "InfoNCE", "evidence": "InfoNCE loss"}
+{"question": "On the 27-dataset evaluation, how does the best CLIP model's average gain over previous systems change?", "answerable": true, "expected_pages": [{"source": "clip.pdf", "page": 12}], "answer": "from 2.6% to 5%", "evidence": "from 2.6% to 5%"}
+{"question": "On which evaluation suite does SimCLRv2 beat BiT-M?", "answerable": true, "expected_pages": [{"source": "clip.pdf", "page": 12}], "answer": "the 27-dataset suite, not the 12 datasets of Kornblith et al.", "evidence": "SimCLRv2 outperforms BiT-M"}
+{"question": "What kind of applications does zero-shot CLIP look promising for?", "answerable": true, "expected_pages": [{"source": "clip.pdf", "page": 20}], "answer": "image retrieval and search", "evidence": "image retrieval or search"}
+{"question": "When the three annotators of the multimodal stance datasets disagreed, how was the gold label decided?", "answerable": true, "expected_pages": [{"source": "multimodal.pdf", "page": 3}], "answer": "three more annotators and a majority vote", "evidence": "majority vote"}
+{"question": "In the multimodal stance datasets, what share of the data needed the extra annotators?", "answerable": true, "expected_pages": [{"source": "multimodal.pdf", "page": 3}], "answer": "2.54%", "evidence": "2.54%"}
+{"question": "Which of the new multimodal stance datasets has the highest Cohen's Kappa?", "answerable": true, "expected_pages": [{"source": "multimodal.pdf", "page": 3}], "answer": "MRUC, 0.752", "evidence": "MRUC is 0.752"}
+{"question": "Which two fusion methods are compared with TMPT?", "answerable": true, "expected_pages": [{"source": "multimodal.pdf", "page": 8}], "answer": "cross-modal attention and GAT", "evidence": "cross-modal attention (Wei et al., 2020) and GAT"}
+{"question": "What is the new multimodal multi-turn stance dataset called?", "answerable": true, "expected_pages": [{"source": "multiturn.pdf", "page": 2}], "answer": "MmMtCSD", "evidence": "first multimodal multi-turn conversational dataset"}
+{"question": "Which model writes the image captions MLLM-SD uses?", "answerable": true, "expected_pages": [{"source": "multiturn.pdf", "page": 5}], "answer": "GPT4-Vision", "evidence": "descriptions using GPT4-Vision"}
+{"question": "Whose tokenizer encodes MLLM-SD's text input?", "answerable": true, "expected_pages": [{"source": "multiturn.pdf", "page": 5}], "answer": "LLaMA's", "evidence": "tokenizer from LLaMA"}
+{"question": "What mechanism does T-MAD use to balance image and text?", "answerable": true, "expected_pages": [{"source": "tmad.pdf", "page": 3}], "answer": "Mutual Information-based Dynamic Weighting", "evidence": "Mutual Information-based Dynamic Weighting"}
+{"question": "Which text and image encoders give T-MAD its best results?", "answerable": true, "expected_pages": [{"source": "tmad.pdf", "page": 9}], "answer": "RoBERTa and ViT", "evidence": "best text encoder (RoBERTa)"}
+{"question": "What reasoning depth works best for T-MAD?", "answerable": true, "expected_pages": [{"source": "tmad.pdf", "page": 9}], "answer": "5", "evidence": "reasoning depth of 5"}
+{"question": "How many videos and frame-transcript pairs does MultiClimate have?", "answerable": true, "expected_pages": [{"source": "tmad.pdf", "page": 13}], "answer": "100 YouTube videos, 4,209 pairs", "evidence": "4,209 frame-transcript pairs"}
+{"question": "How does ViT's classification head differ between pre-training and fine-tuning?", "answerable": true, "expected_pages": [{"source": "vit.pdf", "page": 3}], "answer": "an MLP with one hidden layer vs a single linear layer", "evidence": "single linear layer at fine-tuning time"}
+{"question": "What kind of position embeddings does ViT use?", "answerable": true, "expected_pages": [{"source": "vit.pdf", "page": 3}], "answer": "standard learnable 1D position embeddings", "evidence": "learnable 1D position embeddings"}
+{"question": "Where does ViT put LayerNorm and residual connections?", "answerable": true, "expected_pages": [{"source": "vit.pdf", "page": 3}], "answer": "LayerNorm before every block, residual connections after", "evidence": "applied before every block"}
+{"question": "Which kind of pre-training do the ViT authors leave for future work?", "answerable": true, "expected_pages": [{"source": "vit.pdf", "page": 9}], "answer": "contrastive pre-training", "evidence": "exploration of contrastive pre-training"}
+{"question": "What learning rate is used to fine-tune LLaVA on its visual instruction data?", "answerable": false, "absent": ["LLaVA"]}
+{"question": "How many instruction-following samples were collected to train LLaVA?", "answerable": false, "absent": ["LLaVA"]}
+{"question": "How many image-text pairs does the LAION-5B dataset contain?", "answerable": false, "absent": ["LAION"]}
+{"question": "How many hours of audio was Whisper trained on?", "answerable": false, "absent": ["Whisper"]}
+{"question": "How many languages does Whisper's training data cover?", "answerable": false, "absent": ["Whisper"]}
+{"question": "In which space does Stable Diffusion run its diffusion process?", "answerable": false, "absent": ["Stable Diffusion"]}
+{"question": "What image resolution was Stable Diffusion v1 trained at?", "answerable": false, "absent": ["Stable Diffusion"]}
+{"question": "How many parameters does the largest T5 model have?", "answerable": false, "absent": ["T5"]}
+{"question": "Which pre-training dataset was introduced together with T5?", "answerable": false, "absent": ["T5"]}
+{"question": "What pre-training objective does XLNet use instead of masking tokens?", "answerable": false, "absent": ["XLNet"]}
+{"question": "What does ELECTRA's discriminator learn to detect during pre-training?", "answerable": false, "absent": ["ELECTRA"]}
+{"question": "What is the job of ELECTRA's generator during pre-training?", "answerable": false, "absent": ["ELECTRA"]}
+{"question": "How much smaller and faster than BERT is DistilBERT?", "answerable": false, "absent": ["DistilBERT"]}
+{"question": "What context length does Mistral 7B support?", "answerable": false, "absent": ["Mistral"]}
+{"question": "How many parameters does Gemini Nano have?", "answerable": false, "absent": ["Gemini"]}
+{"question": "How many parameters does the original DALL-E model have?", "answerable": false, "absent": ["DALL"]}
+{"question": "What does the original DALL-E use to turn images into tokens?", "answerable": false, "absent": ["DALL"]}
