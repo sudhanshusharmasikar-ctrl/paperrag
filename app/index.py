@@ -22,6 +22,7 @@ from .chunking import Chunk, chunk_pdf
 from .config import (
     CHUNKS_PATH,
     EMBED_BATCH,
+    EMBED_DEVICE,
     EMBED_MODEL,
     INDEX_PATH,
     PDF_DIR,
@@ -35,7 +36,7 @@ def get_model() -> SentenceTransformer:
     is the single most common performance bug in a RAG demo."""
     global _model
     if _model is None:
-        _model = SentenceTransformer(EMBED_MODEL)
+        _model = SentenceTransformer(EMBED_MODEL, device=EMBED_DEVICE)
     return _model
 
 
