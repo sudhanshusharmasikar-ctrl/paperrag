@@ -1,0 +1,43 @@
+# Runs the test suite on a fresh Linux machine after every push, on Python
+# 3.11 (the oldest version the README supports) and 3.14 (the version used on
+# macOS). The pull request page and the badge in the README show the result.
+name: tests
+
+# Every push to any branch: a branch is tested before its pull request is
+# merged, and main is tested again after the merge.
+on: push
+
+# The workflow only reads the code, so its token gets read access only.
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false   # finish both Python versions even if one fails
+      matrix:
+        python-version: ["3.11", "3.14"]
+    env:
+      HF_HUB_OFFLINE: "1"   # the tests must never download the embedding model
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      # PyTorch comes in with sentence-transformers. Its default Linux build
+      # bundles several GB of GPU libraries; the tests never run a model, so
+      # the CPU-only build is enough and installs much faster.
+      - name: Install CPU-only PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install the project and the test tools
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the tests
+        run: pytest
