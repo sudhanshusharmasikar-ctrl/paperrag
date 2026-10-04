@@ -107,9 +107,9 @@ python -m eval.run_eval --threshold 0.42     # final table
 A citation counts as correct when it points to the page listed for the
 question, or to another page of the same paper that contains the same evidence
 phrase (`check_questions` lists those pages). Latency is the time to embed a
-question and search the index on CPU, measured after one untimed pass over
-all the questions. With `--threshold`, the script also lists the questions
-that went wrong.
+question and search the index on whatever device the model runs on (the
+script prints it), measured after one untimed pass over all the questions.
+With `--threshold`, the script also lists the questions that went wrong.
 
 | Metric | Value |
 |---|---|
