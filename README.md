@@ -1,5 +1,7 @@
 # PaperRAG
 
+[![tests](https://github.com/sudhanshusharmasikar-ctrl/paperrag/actions/workflows/tests.yml/badge.svg)](https://github.com/sudhanshusharmasikar-ctrl/paperrag/actions/workflows/tests.yml)
+
 Citation-grounded retrieval over research papers. Every answer cites the source
 file and page it came from, and the system refuses to answer when retrieval is
 too weak to support one.
@@ -30,6 +32,10 @@ in for MiniLM, and the tests generate their own PDFs. They cover text cleaning
 and chunking, the index files, the abstention guard, answer formatting, the
 API and the eval arithmetic. Retrieval *quality* is measured by
 `eval/run_eval.py`, not by these tests.
+
+GitHub Actions runs the same tests after every push, on Python 3.11 and 3.14
+(see `.github/workflows/tests.yml`). The badge at the top shows the result
+for `main`.
 
 ## How it works
 
