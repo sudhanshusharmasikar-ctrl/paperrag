@@ -43,11 +43,12 @@ COLUMN_TOLERANCE = 20
 EMBED_MODEL = os.getenv("PAPERRAG_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 EMBED_DIM = 384
 EMBED_BATCH = 64
-# Where the model runs. CPU by default, because that is what this project is
-# built to deploy on, and a GPU barely helps with one short question at a time.
-# On a Mac the library would otherwise pick the GPU ("mps"), which adds one-off
-# warm-up delays. Set "mps" or "cuda" to build a big index faster.
-EMBED_DEVICE = os.getenv("PAPERRAG_DEVICE", "cpu")
+# Where the model runs. Unset, the library picks: an NVIDIA GPU ("cuda"), the
+# GPU of an Apple-silicon Mac ("mps"), or else the CPU. Don't force "cpu" on a
+# Mac: on an M-series MacBook Air that crashed with a segmentation fault, most
+# likely because faiss and PyTorch each load their own copy of the OpenMP
+# threading library, and that only bites when both run on the CPU.
+EMBED_DEVICE = os.getenv("PAPERRAG_DEVICE") or None
 
 # ---------- retrieval ----------
 TOP_K = int(os.getenv("PAPERRAG_TOP_K", 5))

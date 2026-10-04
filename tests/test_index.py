@@ -33,10 +33,11 @@ def test_build_stops_when_there_are_no_pdfs(tmp_path):
         index_mod.build(tmp_path)
 
 
-def test_the_model_is_loaded_on_the_configured_device(monkeypatch):
+@pytest.mark.parametrize("device", [None, "cuda"])  # None: the library picks the device
+def test_the_model_is_loaded_on_the_configured_device(monkeypatch, device):
     calls = []
     monkeypatch.setattr(index_mod, "SentenceTransformer", lambda *a, **kw: calls.append((a, kw)))
     monkeypatch.setattr(index_mod, "_model", None)
-    monkeypatch.setattr(index_mod, "EMBED_DEVICE", "cpu")
+    monkeypatch.setattr(index_mod, "EMBED_DEVICE", device)
     real_get_model()
-    assert calls == [((index_mod.EMBED_MODEL,), {"device": "cpu"})]
+    assert calls == [((index_mod.EMBED_MODEL,), {"device": device})]
