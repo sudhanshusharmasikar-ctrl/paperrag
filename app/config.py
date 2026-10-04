@@ -55,9 +55,11 @@ TOP_K = int(os.getenv("PAPERRAG_TOP_K", 5))
 
 # The abstention threshold. Vectors are L2-normalised and the index is inner
 # product, so scores are cosine similarity in [-1, 1].
-# DO NOT trust this default. Sweep it with eval/run_eval.py on your own
-# questions and set it from the data. The right value depends on your corpus.
-SIM_THRESHOLD = float(os.getenv("PAPERRAG_SIM_THRESHOLD", 0.35))
+# 0.50 comes from sweeping eval/run_eval.py over the 51-question evaluation set
+# (README, Evaluation): it refused 14 of the 17 unanswerable questions and 4 of
+# the 34 answerable ones. The right value depends on the papers indexed, so
+# re-run the sweep when you change them.
+SIM_THRESHOLD = float(os.getenv("PAPERRAG_SIM_THRESHOLD", 0.50))
 
 # ---------- generation ----------
 # "extractive"  -> no LLM, returns the retrieved spans verbatim with citations.
