@@ -20,17 +20,23 @@ st.caption("Answers grounded in indexed papers, with page-level citations. "
 
 with st.sidebar:
     st.subheader("Retrieval settings")
+    try:
+        h = requests.get(f"{API}/health", timeout=5).json()
+    except Exception:
+        h = None
+    # Start the slider at the server's threshold (chosen by the evaluation), not
+    # at a number of our own: whatever the slider says is sent with every question.
+    start = float(h.get("threshold", 0.50)) if h else 0.50
     top_k = st.slider("Top-k passages", 1, 15, 5)
     threshold = st.slider(
-        "Abstention threshold (cosine)", -0.2, 0.9, 0.35, 0.01,
+        "Abstention threshold (cosine)", -0.2, 0.9, start, 0.01,
         help="Below this top-1 similarity, the system refuses to answer.",
     )
     mode = st.radio("Generation", ["extractive", "mistral"], index=0)
     st.divider()
-    try:
-        h = requests.get(f"{API}/health", timeout=5).json()
+    if h:
         st.success(f"API up · {h['chunks']} chunks indexed")
-    except Exception:
+    else:
         st.error("API unreachable. Start it with `uvicorn app.api:app`.")
 
 question = st.text_input(

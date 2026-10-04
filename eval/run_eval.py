@@ -20,7 +20,7 @@ Check the file against your index before trusting any numbers:
 Then:
     python -m eval.run_eval --sweep
 to pick a threshold, and
-    python -m eval.run_eval --threshold 0.42
+    python -m eval.run_eval --threshold 0.50
 to produce the final table.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app.config import TOP_K
+from app.config import SIM_THRESHOLD, TOP_K
 from app.index import get_model
 from app.retrieve import Retriever
 from eval.check_questions import with_evidence_pages
@@ -170,7 +170,7 @@ def main() -> None:
         )
         return
 
-    thr = args.threshold if args.threshold is not None else 0.35
+    thr = args.threshold if args.threshold is not None else SIM_THRESHOLD
     m = evaluate(retriever, rows, thr, args.top_k)
     misses = m.pop("misses")
     print(json.dumps(m, indent=2))
