@@ -30,9 +30,9 @@ pytest
 The tests run offline in a few seconds: a small bag-of-words embedder stands
 in for MiniLM, and the tests generate their own PDFs. They cover text cleaning
 and chunking, the index files, the abstention guard, answer formatting, the
-API, the eval arithmetic, the question checker and reading settings from
-`.env`. Retrieval *quality* is measured by `eval/run_eval.py`, not by these
-tests.
+API, the eval arithmetic, the question checker, reading settings from `.env`
+and where the web page's threshold slider starts. Retrieval *quality* is
+measured by `eval/run_eval.py`, not by these tests.
 
 GitHub Actions runs the same tests after every push, on Python 3.11 and 3.14
 (see `.github/workflows/tests.yml`). The badge at the top shows the result
@@ -74,6 +74,8 @@ where the passages are on-topic but don't contain the answer.
 
 - Pages with three or more columns aren't put in reading order.
 - A single sentence longer than `CHUNK_CHARS` still becomes one oversized chunk.
+- A sentence that runs across a page break is split between two chunks, the
+  price of chunks that never cross a page.
 - Scanned PDFs with no text layer produce zero chunks and are skipped. OCR is
   not implemented.
 - Tables and figures are dropped by the noise filter, so numeric questions that
@@ -101,7 +103,7 @@ The PDFs aren't in this repository. Put them in `data/pdfs/` (or point
 python -m app.index                          # index the papers
 python -m eval.check_questions               # answers are on their pages; no paper answers an unanswerable one
 python -m eval.run_eval --sweep              # pick a threshold
-python -m eval.run_eval --threshold 0.42     # final table
+python -m eval.run_eval --threshold 0.50     # final numbers, and every miss
 ```
 
 A citation counts as correct when it points to the page listed for the
@@ -111,15 +113,72 @@ question and search the index on whatever device the model runs on (the
 script prints it), measured after one untimed pass over all the questions.
 With `--threshold`, the script also lists the questions that went wrong.
 
+### Results
+
+Measured on the 8 papers above (905 chunks), with the threshold at 0.50.
+Latency is retrieval only, on an Apple-silicon MacBook Air, where the model
+runs on the GPU (`mps`).
+
 | Metric | Value |
 |---|---|
-| Corpus | _N_ PDFs, _N_ chunks |
-| Eval set | _N_ questions (_N_ answerable, _N_ unanswerable) |
-| Unsupported answers, no guard | _N_% |
-| Unsupported answers, with guard | _N_% |
-| False refusal rate | _N_% |
-| Citation hit rate | _N_% |
-| p95 latency (CPU) | _N_ ms |
+| Corpus | 8 PDFs, 905 chunks |
+| Eval set | 51 questions (34 answerable, 17 unanswerable) |
+| Unsupported answers, no guard | 33.3% (all 17 unanswerable questions get an answer) |
+| Unsupported answers, with guard | 5.9% (3 of 51) |
+| False refusal rate | 11.8% (4 of 34 answerable questions) |
+| Citation hit rate | 63.3% (19 of the 30 answered questions cite the right page) |
+| Retrieval latency | median 9.3 ms, p95 10.4 ms |
 
-Fill these in from your own run. Do not put this project on a resume until
-this table has real numbers in it.
+In one line: the guard refused 14 of the 17 unanswerable questions (none
+without it) and wrongly refused 4 of the 34 answerable ones.
+
+### Choosing the threshold
+
+Selected rows of `python -m eval.run_eval --sweep`:
+
+| Threshold | Unsupported answers | False refusals | Citation hit rate |
+|---|---|---|---|
+| 0.34 | 19.6% (10 of 17 unanswerable answered) | 0% | 61.8% |
+| 0.42 | 15.7% (8) | 0% | 61.8% |
+| 0.48 | 9.8% (5) | 11.8% (4 of 34) | 63.3% |
+| **0.50** | **5.9% (3)** | **11.8% (4)** | **63.3%** |
+| 0.52 | 3.9% (2) | 14.7% (5) | 65.5% |
+| 0.54 | 2.0% (1) | 23.5% (8) | 69.2% |
+| 0.56 | 0% | 32.4% (11) | 69.6% |
+
+Up to 0.42 no answerable question is refused, but 8 or more of the 17
+unanswerable ones still get an answer. From 0.42 to 0.50, five more
+unanswerable questions are refused for the price of four answerable ones.
+Above 0.50, each further refusal of an unanswerable question costs one to
+three answerable ones, and at 0.56 a third of the answerable questions are
+refused. So the default is now 0.50; the old starting value, 0.35, let 10 of
+the 17 unanswerable questions through. The citation hit rate rises with the
+threshold only because the refused questions, often the hard ones, drop out
+of the count.
+
+### What went wrong at 0.50
+
+`python -m eval.run_eval --threshold 0.50` lists every miss.
+
+- **3 unanswerable questions got an answer**, all just above the threshold
+  (0.507 to 0.549): the size of LAION-5B, T5's pre-training dataset and
+  XLNet's objective. The papers never mention these models, but they discuss
+  pre-training data and objectives, so a passage on the same topic scores
+  high. A similarity threshold catches off-topic questions, not on-topic ones
+  whose answer is missing; that is the job of the second guard
+  (`INSUFFICIENT_CONTEXT` in mistral mode), which this evaluation doesn't use.
+- **4 answerable questions were refused** (0.434 to 0.478): InfoNCE in CLIP,
+  the fusion methods compared with TMPT, the tokenizer MLLM-SD uses and where
+  ViT puts LayerNorm. Each asks for one specific detail, and such questions
+  score lower than broad ones.
+- **11 answers cited the wrong page**, usually the right paper but another
+  page of it, because an overview passage outranks the detail. One answer is
+  a sentence split across a page break (Transformer, pages 6 and 7), which
+  page-bounded chunks can't keep together. A few cited pages may also hold the
+  answer (ViT's appendix on position embeddings, for one), so the strict 63%
+  may understate retrieval a little.
+
+Next steps, each to be measured by re-running this evaluation: keyword search
+(BM25) next to vector search, so exact terms like "WordPiece" or "30,000" are
+found; a cross-encoder reranker over the top 20; and a stronger embedding
+model.
