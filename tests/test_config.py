@@ -42,6 +42,6 @@ def test_hybrid_search_is_the_default(tmp_path):
     assert read_config(tmp_path / "b", "config.RETRIEVAL_MODE", PAPERRAG_RETRIEVAL="dense") == ["dense"]
 
 
-def test_one_chunk_per_page_is_off_unless_set(tmp_path):
-    assert read_config(tmp_path / "a", "config.DISTINCT_PAGES") == ["False"]
-    assert read_config(tmp_path / "b", "config.DISTINCT_PAGES", PAPERRAG_DISTINCT_PAGES="1") == ["True"]
+def test_one_chunk_per_page_is_on_unless_turned_off(tmp_path):
+    assert read_config(tmp_path / "a", "config.DISTINCT_PAGES") == ["True"]
+    assert read_config(tmp_path / "b", "config.DISTINCT_PAGES", PAPERRAG_DISTINCT_PAGES="0") == ["False"]
