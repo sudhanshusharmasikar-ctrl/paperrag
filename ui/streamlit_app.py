@@ -32,7 +32,9 @@ with st.sidebar:
         "Abstention threshold (cosine)", -0.2, 0.9, start, 0.01,
         help="Below this top-1 similarity, the system refuses to answer.",
     )
-    mode = st.radio("Generation", ["extractive", "mistral"], index=0)
+    # Start at the server's mode too: the mode picked here is sent with every question.
+    mode = st.radio("Generation", ["extractive", "mistral"],
+                    index=1 if h and h.get("gen_mode") == "mistral" else 0)
     st.divider()
     if h:
         st.success(f"API up · {h['chunks']} chunks indexed")
@@ -51,10 +53,12 @@ if st.button("Ask", type="primary") and question:
                   "threshold": threshold, "mode": mode},
             timeout=90,
         )
-        r.raise_for_status()
         data = r.json()
     except Exception as e:
         st.error(f"Request failed: {e}")
+        st.stop()
+    if not r.ok:  # the API says why, e.g. a missing Mistral key
+        st.error(f"Request failed ({r.status_code}): {data.get('detail', data)}")
         st.stop()
 
     c1, c2, c3 = st.columns(3)

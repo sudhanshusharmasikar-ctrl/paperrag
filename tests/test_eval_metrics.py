@@ -1,7 +1,10 @@
 """The numbers for the README table come from evaluate(), so check its arithmetic."""
 from types import SimpleNamespace
 
-from eval.run_eval import changed_pages, evaluate
+import pytest
+
+from app.generate import LLMAuthError, LLMError
+from eval.run_eval import changed_pages, cited_pages, evaluate, evaluate_mistral
 
 
 class ScriptedRetriever:
@@ -60,3 +63,62 @@ def test_changed_pages_lists_what_hybrid_fixed_and_what_it_lost():
     fixed, lost = changed_pages(dense, hybrid)
     assert fixed == ["q1"]                    # right page with hybrid only
     assert lost == [miss("q3", 6, 7)]         # right page with dense only
+
+
+def test_cited_pages_reads_the_passage_numbers():
+    hits = [SimpleNamespace(source="paper.pdf", page=p) for p in (3, 7, 9)]
+    assert cited_pages("Adam [1], with warmup [2, 3]; see also [9].", hits) == \
+        {("paper.pdf", 3), ("paper.pdf", 7), ("paper.pdf", 9)}
+    assert cited_pages("No citation here.", hits) == set()
+
+
+ROWS = [
+    {"question": "a1", "answerable": True, "expected_pages": [{"source": "paper.pdf", "page": 3}]},
+    {"question": "a2", "answerable": True, "expected_pages": [{"source": "paper.pdf", "page": 3}]},
+    {"question": "a3", "answerable": True, "expected_pages": [{"source": "paper.pdf", "page": 3}]},
+    {"question": "a4", "answerable": True, "expected_pages": [{"source": "paper.pdf", "page": 3}]},
+    {"question": "u1", "answerable": False},
+    {"question": "u2", "answerable": False},
+]
+GUARD = {"a1": (False, [3, 7]), "a2": (False, [7, 3]), "a3": (False, [3]), "a4": (True, []),
+         "u1": (False, [5]), "u2": (False, [5])}
+
+
+def scripted_answers(replies):
+    """Mistral's reply for each question; an exception is raised as if the call failed."""
+    def ask(res, mode):
+        reply = replies[res.question]
+        if isinstance(reply, Exception):
+            raise reply
+        return {"answer": reply, "abstained": reply == "INSUFFICIENT_CONTEXT"}
+    return ask
+
+
+class GuardRetriever(ScriptedRetriever):
+    def __call__(self, question, top_k, threshold, **options):
+        res = super().__call__(question, top_k, threshold, **options)
+        res.question = question
+        return res
+
+
+def test_mistral_mode_is_scored_on_what_the_score_guard_let_through():
+    replies = {"a1": "Adam [1].", "a2": "Adam [1].", "a3": "INSUFFICIENT_CONTEXT",
+               "u1": "INSUFFICIENT_CONTEXT", "u2": "Something made up [1]."}
+    m = evaluate_mistral(GuardRetriever(GUARD), ROWS, threshold=0.5, top_k=5, ask=scripted_answers(replies))
+    assert (m["passed_unanswerable"], m["refused_unanswerable"]) == (2, 1)   # u2 slipped through both guards
+    assert (m["passed_answerable"], m["refused_answerable"]) == (3, 1)       # a4 never reached Mistral
+    assert (m["answered"], m["cite_a_passage"], m["cite_right_page"]) == (2, 2, 1)  # a2's [1] is p.7
+    assert m["no_reply"] == 0
+
+
+def test_mistral_failing_question_after_question_stops_the_run():
+    busy = LLMError("Mistral answered 429 (Rate limit exceeded), still failing after 5 tries")
+    replies = {q: busy for q in GUARD}
+    with pytest.raises(LLMError, match="no answer to 3 questions in a row.*Rate limit exceeded"):
+        evaluate_mistral(GuardRetriever(GUARD), ROWS, threshold=0.5, top_k=5, ask=scripted_answers(replies))
+
+
+def test_a_rejected_key_stops_the_mistral_run_at_once():
+    replies = {q: LLMAuthError("Mistral rejected the API key (401: Unauthorized).") for q in GUARD}
+    with pytest.raises(LLMAuthError):
+        evaluate_mistral(GuardRetriever(GUARD), ROWS, threshold=0.5, top_k=5, ask=scripted_answers(replies))

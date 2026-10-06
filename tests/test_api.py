@@ -2,7 +2,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app import api as api_mod
 from app.api import app
+from app.generate import LLMError
 
 ON_TOPIC = "Which optimizer, learning rate warmup, label smoothing and dropout did they train with?"
 OFF_TOPIC = "What is a good recipe for chocolate cake with butter?"
@@ -50,3 +52,13 @@ def test_without_an_index_the_api_says_how_to_build_it(missing_index):
         resp = c.post("/ask", json={"question": "What optimizer?"})
         assert resp.status_code == 503
         assert "python -m app.index" in resp.json()["detail"]
+
+
+def test_a_failed_mistral_call_becomes_a_502_that_says_why(client, monkeypatch):
+    def broken(r, mode=None):
+        raise LLMError("Mistral answered 429 (Rate limit exceeded), still failing after 5 tries")
+
+    monkeypatch.setattr(api_mod, "answer", broken)
+    resp = client.post("/ask", json={"question": ON_TOPIC, "mode": "mistral"})
+    assert resp.status_code == 502
+    assert "Rate limit exceeded" in resp.json()["detail"]
