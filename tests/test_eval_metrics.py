@@ -10,8 +10,8 @@ class ScriptedRetriever:
     def __init__(self, script):
         self.script, self.modes = script, []
 
-    def __call__(self, question, top_k, threshold, mode=None):
-        self.modes.append(mode)
+    def __call__(self, question, top_k, threshold, **options):
+        self.modes.append(options)
         abstain, pages = self.script[question]
         hits = [SimpleNamespace(source="paper.pdf", page=p) for p in pages]
         return SimpleNamespace(abstain=abstain, hits=hits)
@@ -35,6 +35,7 @@ def test_metrics_on_a_hand_checked_example():
     assert m["citation_hit_rate_pct"] == 80.0   # right page in 4 of the 5 answered
     assert m["first_hit_rate_pct"] == 60.0      # and first in 3 of them (a4 cites p.1 before p.3)
     assert (m["cited_right_page"], m["cited_right_page_first"], m["answered_checked"]) == (4, 3, 5)
+    assert m["pages_cited_avg"] == 1.4          # 2 + 1 + 1 + 2 + 1 different pages, over 5 answers
     assert 0 <= m["latency_ms_p50"] <= m["latency_ms_p95"]  # timed, even if tiny here
     # and it says which questions went wrong
     assert [q for q, _ in m["misses"]["answered_unanswerable"]] == ["u0"]
@@ -42,11 +43,12 @@ def test_metrics_on_a_hand_checked_example():
     assert m["misses"]["wrong_page"] == [("a5", [("paper.pdf", 3)], [("paper.pdf", 9)])]
 
 
-def test_the_retrieval_mode_reaches_the_retriever():
+def test_the_retrieval_options_reach_the_retriever():
     rows = [{"question": "a", "answerable": True, "expected_pages": [{"source": "paper.pdf", "page": 1}]}]
     retriever = ScriptedRetriever({"a": (False, [1])})
-    assert evaluate(retriever, rows, threshold=0.4, top_k=5, mode="hybrid")["mode"] == "hybrid"
-    assert retriever.modes == ["hybrid"]
+    options = {"mode": "hybrid", "distinct_pages": True}
+    assert evaluate(retriever, rows, threshold=0.4, top_k=5, **options)["options"] == options
+    assert retriever.modes == [options]
 
 
 def test_changed_pages_lists_what_hybrid_fixed_and_what_it_lost():

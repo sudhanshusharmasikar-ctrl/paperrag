@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .bm25 import BM25
-from .config import RETRIEVAL_MODE, RRF_K, SIM_THRESHOLD, TOP_K
+from .config import DISTINCT_PAGES, RETRIEVAL_MODE, RRF_K, SIM_THRESHOLD, TOP_K
 from .index import embed, load
 
 
@@ -54,6 +54,20 @@ def rrf(rankings: list[list[int]], k: int = RRF_K) -> dict[int, float]:
     return fused
 
 
+def one_per_page(order: list[int], chunks: list[dict]) -> list[int]:
+    """The ranking with only each page's best chunk. The pages of the plain
+    top k all stay, in the same order, and pages further down move up into
+    the slots that repeats of a page used to take."""
+    seen: set[tuple[str, int]] = set()
+    out = []
+    for i in order:
+        page = (chunks[i]["source"], int(chunks[i]["page"]))
+        if page not in seen:
+            seen.add(page)
+            out.append(i)
+    return out
+
+
 class Retriever:
     def __init__(self) -> None:
         self.index, self.chunks = load()
@@ -71,31 +85,31 @@ class Retriever:
         top_k: int = TOP_K,
         threshold: float = SIM_THRESHOLD,
         mode: str | None = None,
+        distinct_pages: bool | None = None,
     ) -> Retrieval:
         mode = mode or RETRIEVAL_MODE
+        distinct_pages = DISTINCT_PAGES if distinct_pages is None else distinct_pages
         if mode not in ("dense", "hybrid"):
             raise ValueError(f"Unknown retrieval mode: {mode}")
         if not query.strip():
             return Retrieval(query, [], 0.0, True, threshold)
 
+        # Rank every passage. Exact search over all of them takes milliseconds
+        # at this size, and gives each one its cosine score.
         qv = embed([query])
-        if mode == "dense":
-            scores, idxs = self.index.search(qv, min(top_k, self.index.ntotal))
-            hits = [self._hit(int(i), float(s)) for s, i in zip(scores[0], idxs[0]) if i >= 0]
-            top = hits[0].score if hits else 0.0
-        else:
-            # Rank every passage both ways. Exact search over all of them takes
-            # milliseconds at this size, and gives each one its cosine score.
-            scores, idxs = self.index.search(qv, self.index.ntotal)
-            cosine = {int(i): float(s) for s, i in zip(scores[0], idxs[0]) if i >= 0}
-            dense_rank = list(cosine)  # best first
+        scores, idxs = self.index.search(qv, self.index.ntotal)
+        cosine = {int(i): float(s) for s, i in zip(scores[0], idxs[0]) if i >= 0}
+        order = list(cosine)  # best first
+        if mode == "hybrid":
             keyword = self.bm25.scores(query)
             keyword_rank = [int(i) for i in np.argsort(-keyword, kind="stable") if keyword[i] > 0]
-            fused = rrf([dense_rank, keyword_rank])
-            best = sorted(fused, key=lambda i: -fused[i])[:top_k]  # ties keep the dense order
-            hits = [self._hit(i, cosine[i]) for i in best]
-            # The guard still looks at the best embedding score, as in dense mode.
-            top = max(cosine.values(), default=0.0)
+            fused = rrf([order, keyword_rank])
+            order = sorted(fused, key=lambda i: -fused[i])  # ties keep the dense order
+        if distinct_pages:
+            order = one_per_page(order, self.chunks)
+        hits = [self._hit(i, cosine[i]) for i in order[:top_k]]
+        # The guard looks at the best embedding score, whatever the mode.
+        top = max(cosine.values(), default=0.0)
 
         return Retrieval(
             query=query,

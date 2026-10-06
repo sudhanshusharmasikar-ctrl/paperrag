@@ -21,10 +21,11 @@ Then:
     python -m eval.run_eval --sweep
 to pick a threshold, and
     python -m eval.run_eval --threshold 0.50
-to produce the final table. It runs every question with both retrieval modes,
-dense (embeddings only) and hybrid (embeddings plus BM25 keyword search). The
-guard is the same in both, so they refuse the same questions; the table shows
-how often each one cites the right page.
+to produce the final table. It runs every question with three retrieval
+setups, each adding one change to the one before: dense (embeddings only),
+hybrid (embeddings plus BM25 keyword search) and hybrid with one chunk per
+page. The guard is the same in all three, so they refuse the same questions;
+the table shows how often each one cites the right page.
 """
 from __future__ import annotations
 
@@ -35,12 +36,19 @@ from pathlib import Path
 
 import numpy as np
 
-from app.config import RETRIEVAL_MODE, SIM_THRESHOLD, TOP_K
+from app.config import DISTINCT_PAGES, RETRIEVAL_MODE, SIM_THRESHOLD, TOP_K
 from app.index import get_model
 from app.retrieve import Retriever
 from eval.check_questions import with_evidence_pages
 
 QUESTIONS = Path(__file__).parent / "questions.jsonl"
+# The comparison --threshold prints: each setup adds one change to the one
+# before it, so each column shows what that change did.
+VARIANTS = [
+    ("dense", {"mode": "dense", "distinct_pages": False}),
+    ("hybrid", {"mode": "hybrid", "distinct_pages": False}),
+    ("hybrid, 1 per page", {"mode": "hybrid", "distinct_pages": True}),
+]
 
 
 def load_questions() -> list[dict]:
@@ -56,7 +64,9 @@ def load_questions() -> list[dict]:
 
 
 def evaluate(retriever: Retriever, rows: list[dict], threshold: float, top_k: int,
-             mode: str | None = None) -> dict:
+             **options) -> dict:
+    """options (mode, distinct_pages) go to the retriever; left out, the
+    settings in app/config.py apply."""
     ans = [r for r in rows if r["answerable"]]
     unans = [r for r in rows if not r["answerable"]]
 
@@ -69,6 +79,7 @@ def evaluate(retriever: Retriever, rows: list[dict], threshold: float, top_k: in
     page_hits = 0
     first_hits = 0  # the right page is the first citation
     page_checked = 0
+    pages_cited: list[int] = []  # how many different pages each answer cites
     took_ms: list[float] = []
     # Which questions went wrong, so a reader can see why the numbers are what they are.
     misses: dict[str, list] = {"answered_unanswerable": [], "refused_answerable": [], "wrong_page": []}
@@ -77,7 +88,7 @@ def evaluate(retriever: Retriever, rows: list[dict], threshold: float, top_k: in
         # Time embedding the question and searching the index: the retrieval
         # latency. In mistral mode the LLM call adds its own time on top.
         start = time.perf_counter()
-        res = retriever(question, top_k=top_k, threshold=threshold, mode=mode)
+        res = retriever(question, top_k=top_k, threshold=threshold, **options)
         took_ms.append((time.perf_counter() - start) * 1000)
         return res
 
@@ -95,6 +106,7 @@ def evaluate(retriever: Retriever, rows: list[dict], threshold: float, top_k: in
         elif r.get("expected_pages"):
             page_checked += 1
             got = [(h.source, h.page) for h in res.hits]
+            pages_cited.append(len(set(got)))
             want = {(p["source"], p["page"]) for p in r["expected_pages"]}
             if set(got) & want:
                 page_hits += 1
@@ -105,7 +117,7 @@ def evaluate(retriever: Retriever, rows: list[dict], threshold: float, top_k: in
     unsupported_after = wrongly_answered / len(rows) * 100
 
     return {
-        "mode": mode or RETRIEVAL_MODE,
+        "options": options,
         "threshold": round(threshold, 3),
         "top_k": top_k,
         "n_total": len(rows),
@@ -123,6 +135,7 @@ def evaluate(retriever: Retriever, rows: list[dict], threshold: float, top_k: in
         "answered_checked": page_checked,
         "cited_right_page": page_hits,
         "cited_right_page_first": first_hits,
+        "pages_cited_avg": round(float(np.mean(pages_cited)), 1) if pages_cited else None,
         "latency_ms_p50": round(float(np.percentile(took_ms, 50)), 1) if took_ms else None,
         "latency_ms_p95": round(float(np.percentile(took_ms, 95)), 1) if took_ms else None,
         "misses": misses,
@@ -148,47 +161,51 @@ def print_misses(misses: dict[str, list]) -> None:
         print(f"  {q}\n      wanted {_pages(want)}; cited {_pages(got)}")
 
 
-def changed_pages(dense: dict, hybrid: dict) -> tuple[list[str], list[tuple]]:
-    """The questions where hybrid found a right page dense had missed, and the
-    misses hybrid added. Both modes answer the same questions (same guard)."""
-    missed_dense = {q for q, _, _ in dense["misses"]["wrong_page"]}
-    missed_hybrid = {q: (want, got) for q, want, got in hybrid["misses"]["wrong_page"]}
-    fixed = [q for q, _, _ in dense["misses"]["wrong_page"] if q not in missed_hybrid]
-    lost = [(q, *missed_hybrid[q]) for q, _, _ in hybrid["misses"]["wrong_page"] if q not in missed_dense]
+def changed_pages(before: dict, after: dict) -> tuple[list[str], list[tuple]]:
+    """The questions where `after` found a right page `before` had missed, and
+    the misses `after` added. Both answer the same questions (same guard)."""
+    missed_before = {q for q, _, _ in before["misses"]["wrong_page"]}
+    missed_after = {q: (want, got) for q, want, got in after["misses"]["wrong_page"]}
+    fixed = [q for q, _, _ in before["misses"]["wrong_page"] if q not in missed_after]
+    lost = [(q, *missed_after[q]) for q, _, _ in after["misses"]["wrong_page"] if q not in missed_before]
     return fixed, lost
 
 
-def print_comparison(dense: dict, hybrid: dict, device) -> None:
-    n = dense["answered_checked"]
+def print_comparison(results: list[tuple[str, dict]], device) -> None:
+    """One column per setup; then, step by step, what each change fixed and lost."""
+    first = results[0][1]
+    n = first["answered_checked"]
 
     def share(m, key):
         return f"{m[key]} of {n} ({round(m[key] / n * 100, 1) if n else 0}%)"
 
-    unanswered = len(dense["misses"]["answered_unanswerable"])
-    print(f"Threshold {dense['threshold']}, top {dense['top_k']} citations, {dense['n_total']} questions "
-          f"({dense['n_answerable']} answerable, {dense['n_unanswerable']} unanswerable).\n")
-    print("The guard is the same in both modes:")
-    print(f"  unanswerable questions that got an answer   {unanswered} of {dense['n_unanswerable']}"
-          f"  (with no guard, all {dense['n_unanswerable']})")
-    print(f"  answerable questions refused                {len(dense['misses']['refused_answerable'])} "
-          f"of {dense['n_answerable']}\n")
-    print(f"{'Citations of the answered questions':38}{'dense':>20}{'hybrid':>20}")
-    print(f"{'Right page among the citations':38}{share(dense, 'cited_right_page'):>20}"
-          f"{share(hybrid, 'cited_right_page'):>20}")
-    print(f"{'Right page cited first':38}{share(dense, 'cited_right_page_first'):>20}"
-          f"{share(hybrid, 'cited_right_page_first'):>20}")
-    print(f"{'Retrieval time, median / p95 (ms)':38}"
-          f"{str(dense['latency_ms_p50']) + ' / ' + str(dense['latency_ms_p95']):>20}"
-          f"{str(hybrid['latency_ms_p50']) + ' / ' + str(hybrid['latency_ms_p95']):>20}")
+    unanswered = len(first["misses"]["answered_unanswerable"])
+    print(f"Threshold {first['threshold']}, top {first['top_k']} citations, {first['n_total']} questions "
+          f"({first['n_answerable']} answerable, {first['n_unanswerable']} unanswerable).\n")
+    print("The guard is the same in every column:")
+    print(f"  unanswerable questions that got an answer   {unanswered} of {first['n_unanswerable']}"
+          f"  (with no guard, all {first['n_unanswerable']})")
+    print(f"  answerable questions refused                {len(first['misses']['refused_answerable'])} "
+          f"of {first['n_answerable']}\n")
+    lines = [
+        ("Right page among the citations", lambda m: share(m, "cited_right_page")),
+        ("Right page cited first", lambda m: share(m, "cited_right_page_first")),
+        ("Different pages cited (average)", lambda m: str(m["pages_cited_avg"])),
+        ("Retrieval time, median / p95 (ms)", lambda m: f"{m['latency_ms_p50']} / {m['latency_ms_p95']}"),
+    ]
+    print(f"{'Citations of the answered questions':38}" + "".join(f"{label:>20}" for label, _ in results))
+    for name, fmt in lines:
+        print(f"{name:38}" + "".join(f"{fmt(m):>20}" for _, m in results))
     print(f"(latency measured on {device})")
 
-    fixed, lost = changed_pages(dense, hybrid)
-    print(f"\nHybrid found the right page where dense didn't ({len(fixed)}):")
-    for q in fixed:
-        print(f"  {q}")
-    print(f"\nHybrid lost a right page that dense had found ({len(lost)}):")
-    for q, want, got in lost:
-        print(f"  {q}\n      wanted {_pages(want)}; cited {_pages(got)}")
+    for (a_label, a), (b_label, b) in zip(results, results[1:]):
+        fixed, lost = changed_pages(a, b)
+        print(f"\n{b_label}: found the right page where {a_label} didn't ({len(fixed)}):")
+        for q in fixed:
+            print(f"  {q}")
+        print(f"{b_label}: lost a right page that {a_label} had found ({len(lost)}):")
+        for q, want, got in lost:
+            print(f"  {q}\n      wanted {_pages(want)}; cited {_pages(got)}")
 
 
 def main() -> None:
@@ -206,12 +223,13 @@ def main() -> None:
     # One untimed pass first: it loads the model, and a fresh process does one-off
     # setup work the first time it sees inputs, which a running server has done.
     for r in rows:
-        for mode in ("dense", "hybrid"):
-            retriever(r["question"], top_k=args.top_k, mode=mode)
+        for _, options in VARIANTS:
+            retriever(r["question"], top_k=args.top_k, **options)
     device = get_model().device
 
     if args.sweep:
-        print(f"Citations from {RETRIEVAL_MODE} search (set PAPERRAG_RETRIEVAL to change it).")
+        print(f"Citations from {RETRIEVAL_MODE} search{', one chunk per page' if DISTINCT_PAGES else ''} "
+              "(set PAPERRAG_RETRIEVAL and PAPERRAG_DISTINCT_PAGES to change it).")
         print(f"{'thr':>6} {'unsup_after%':>13} {'false_refuse%':>14} {'cite_hit%':>10}")
         print("-" * 46)
         first = None
@@ -230,10 +248,11 @@ def main() -> None:
         return
 
     thr = args.threshold if args.threshold is not None else SIM_THRESHOLD
-    dense, hybrid = (evaluate(retriever, rows, thr, args.top_k, mode=mode) for mode in ("dense", "hybrid"))
-    print_comparison(dense, hybrid, device)
-    print("\nEvery miss with hybrid search:")
-    print_misses(hybrid["misses"])
+    results = [(label, evaluate(retriever, rows, thr, args.top_k, **options)) for label, options in VARIANTS]
+    print_comparison(results, device)
+    (_, dense), (_, hybrid), (last_label, last) = results
+    print(f"\nEvery miss with {last_label}:")
+    print_misses(last["misses"])
     # Counts are easier to defend than "33.3% -> x%": without a guard every
     # unanswerable question gets an answer, so the "before" is just their share.
     refused = dense["n_unanswerable"] - len(dense["misses"]["answered_unanswerable"])
@@ -242,9 +261,9 @@ def main() -> None:
         f"  the guard refused {refused} of {dense['n_unanswerable']} unanswerable questions "
         f"(none without it) and wrongly refused {len(dense['misses']['refused_answerable'])} of "
         f"{dense['n_answerable']} answerable ones, on a hand-checked set of {dense['n_total']} questions; "
-        f"hybrid search cited the right page for {hybrid['cited_right_page']} of the "
-        f"{hybrid['answered_checked']} answered ones, against {dense['cited_right_page']} with "
-        f"embeddings alone"
+        f"hybrid search citing one chunk per page cited the right page for {last['cited_right_page']} of "
+        f"the {last['answered_checked']} answered ones ({hybrid['cited_right_page']} with hybrid search "
+        f"alone, {dense['cited_right_page']} with embeddings alone)"
     )
 
 

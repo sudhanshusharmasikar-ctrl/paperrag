@@ -30,7 +30,7 @@ pytest
 The tests run offline in a few seconds: a small bag-of-words embedder stands
 in for MiniLM, and the tests generate their own PDFs. They cover text cleaning
 and chunking, the index files, the abstention guard, BM25 and hybrid search,
-answer formatting, the API, the eval arithmetic, the question checker,
+one chunk per page, answer formatting, the API, the eval arithmetic, the question checker,
 reading settings from `.env` and where the web page's threshold slider
 starts. Retrieval *quality* is
 measured by `eval/run_eval.py`, not by these tests.
@@ -71,6 +71,17 @@ The guard still uses the best embedding score, so hybrid and embeddings alone
 pages differ. That makes the comparison in the evaluation clean: hybrid cited
 the right page for 24 of the 30 answered questions, embeddings alone for 19,
 so hybrid is the default.
+
+### One chunk per page
+
+A page is often cut into several chunks, and the best-ranked chunks tend to
+come from the same page: in 5 of the 6 misses left after hybrid search, one
+page took two or three of the five citations. `PAPERRAG_DISTINCT_PAGES=1`
+keeps only each page's best chunk, so the five citations are five different
+pages. It can't lose a page: the pages of the plain top five all stay, in the
+same order, and pages further down fill the slots repeats used to take. So
+the first citation doesn't change, and the right page can only be gained.
+It is off until the evaluation shows what it gains.
 
 ## Design decisions
 
@@ -130,11 +141,13 @@ question, or to another page of the same paper that contains the same evidence
 phrase (`check_questions` lists those pages). Latency is the time to embed a
 question and search the index on whatever device the model runs on (the
 script prints it), measured after one untimed pass over all the questions.
-With `--threshold`, the script runs every question with dense and with
-hybrid search, shows how often each cites the right page (among the 5
-citations, and as the first one), lists the questions where hybrid gained or
-lost the right page, and lists every miss. The guard is the same in both
-modes, so they refuse the same questions.
+With `--threshold`, the script runs every question with three setups, each
+adding one change to the one before: embeddings alone, hybrid search, and
+hybrid search with one chunk per page. It shows how often each cites the right
+page (among the 5 citations, and as the first one) and how many different
+pages it cites, lists the questions each change gained or lost, and lists
+every miss of the last setup. The guard is the same in all three, so they
+refuse the same questions.
 
 ### Results
 
@@ -231,5 +244,6 @@ of the count.
 
 Next steps, each to be measured by re-running this evaluation: cite five
 different pages instead of repeating one (5 of the 6 remaining misses repeat
-a page); a cross-encoder reranker over the top 20, to put the best passage
+a page; built, see One chunk per page, and its numbers come from the next
+run); a cross-encoder reranker over the top 20, to put the best passage
 first; and a stronger embedding model.
