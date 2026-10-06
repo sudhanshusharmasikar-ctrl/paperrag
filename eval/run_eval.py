@@ -211,6 +211,7 @@ def main() -> None:
     device = get_model().device
 
     if args.sweep:
+        print(f"Citations from {RETRIEVAL_MODE} search (set PAPERRAG_RETRIEVAL to change it).")
         print(f"{'thr':>6} {'unsup_after%':>13} {'false_refuse%':>14} {'cite_hit%':>10}")
         print("-" * 46)
         first = None

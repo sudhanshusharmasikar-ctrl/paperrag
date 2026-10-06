@@ -35,3 +35,8 @@ def test_dotenv_is_read_and_a_shell_variable_overrides_it(tmp_path):
 def test_the_library_picks_the_device_unless_one_is_set(tmp_path):
     assert read_config(tmp_path / "a", "config.EMBED_DEVICE") == ["None"]
     assert read_config(tmp_path / "b", "config.EMBED_DEVICE", PAPERRAG_DEVICE="cuda") == ["cuda"]
+
+
+def test_hybrid_search_is_the_default(tmp_path):
+    assert read_config(tmp_path / "a", "config.RETRIEVAL_MODE") == ["hybrid"]
+    assert read_config(tmp_path / "b", "config.RETRIEVAL_MODE", PAPERRAG_RETRIEVAL="dense") == ["dense"]

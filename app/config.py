@@ -58,8 +58,10 @@ TOP_K = int(os.getenv("PAPERRAG_TOP_K", 5))
 # reciprocal rank fusion, so a passage with the exact rare term ("WordPiece",
 # "30,000") can make the list. The guard below always uses the embedding
 # score, so both modes refuse the same questions; only the cited pages differ.
-# eval/run_eval.py measures the two side by side.
-RETRIEVAL_MODE = os.getenv("PAPERRAG_RETRIEVAL", "dense")
+# eval/run_eval.py measures the two side by side: on the 51-question set,
+# hybrid cited the right page for 24 of the 30 answered questions, dense for
+# 19 (README, Evaluation), so hybrid is the default.
+RETRIEVAL_MODE = os.getenv("PAPERRAG_RETRIEVAL", "hybrid")
 # Reciprocal rank fusion gives a passage 1 / (RRF_K + rank) from each ranking.
 # 60 comes from the paper that introduced it (Cormack et al., 2009) and is the
 # usual default: it keeps one list's first place from outweighing everything.
