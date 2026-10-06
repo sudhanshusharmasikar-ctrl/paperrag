@@ -29,9 +29,10 @@ pytest
 
 The tests run offline in a few seconds: a small bag-of-words embedder stands
 in for MiniLM, and the tests generate their own PDFs. They cover text cleaning
-and chunking, the index files, the abstention guard, answer formatting, the
-API, the eval arithmetic, the question checker, reading settings from `.env`
-and where the web page's threshold slider starts. Retrieval *quality* is
+and chunking, the index files, the abstention guard, BM25 and hybrid search,
+answer formatting, the API, the eval arithmetic, the question checker,
+reading settings from `.env` and where the web page's threshold slider
+starts. Retrieval *quality* is
 measured by `eval/run_eval.py`, not by these tests.
 
 GitHub Actions runs the same tests after every push, on Python 3.11 and 3.14
@@ -55,6 +56,21 @@ crosses the middle of the page (title, abstract, a wide figure caption) splits
 the page into bands, and inside each band the left column is read before the
 right one.
 
+### Hybrid search
+
+`PAPERRAG_RETRIEVAL=hybrid` adds keyword search next to the embeddings. The
+embedding model matches meaning, so it finds a passage that says the same
+thing in other words, but it is weaker at exact terms such as "WordPiece",
+"30,000" or "LayerNorm". BM25 (`app/bm25.py`) scores passages by the
+question's words they contain, weighting rare words most. The two rankings
+are merged by reciprocal rank fusion: each gives a passage 1 / (60 + rank),
+and the shares add up, so no cosine score is ever compared with a BM25 score.
+
+The guard still uses the best embedding score, so both modes refuse exactly
+the same questions; only the cited pages differ. That makes the comparison in
+the evaluation clean. The default stays `dense` until the evaluation shows
+hybrid cites the right page more often.
+
 ## Design decisions
 
 | Choice | Why | What was rejected |
@@ -63,6 +79,8 @@ right one.
 | MiniLM-L6-v2 (384d) | ~80MB, CPU-fast, deploys on a free tier | Larger embedders — better recall, but the demo stops being deployable |
 | Chunk at block level | Preserves page number and reading order | Fixed-size split over the whole document — destroys citability |
 | Threshold on top-1 | Mean-of-top-k drifts with k, making the threshold silently k-dependent | Mean or median scoring |
+| Reciprocal rank fusion for hybrid | Uses ranks only, so no tuning of how a cosine compares with a BM25 score | A weighted sum of normalised scores, one more knob to tune |
+| BM25 written in-house (40 lines) | No new dependency; every line is tested and explainable | `rank_bm25` — fine, but one more package for a short formula |
 | `extractive` default | Zero keys, zero cost, and a 100%-faithful control condition | LLM-only — no baseline to compare faithfulness against |
 
 Two independent guards: retrieval-side (similarity below threshold) and
@@ -103,7 +121,7 @@ The PDFs aren't in this repository. Put them in `data/pdfs/` (or point
 python -m app.index                          # index the papers
 python -m eval.check_questions               # answers are on their pages; no paper answers an unanswerable one
 python -m eval.run_eval --sweep              # pick a threshold
-python -m eval.run_eval --threshold 0.50     # final numbers, and every miss
+python -m eval.run_eval --threshold 0.50     # final numbers, dense vs hybrid, and every miss
 ```
 
 A citation counts as correct when it points to the page listed for the
@@ -111,7 +129,11 @@ question, or to another page of the same paper that contains the same evidence
 phrase (`check_questions` lists those pages). Latency is the time to embed a
 question and search the index on whatever device the model runs on (the
 script prints it), measured after one untimed pass over all the questions.
-With `--threshold`, the script also lists the questions that went wrong.
+With `--threshold`, the script runs every question with dense and with
+hybrid search, shows how often each cites the right page (among the 5
+citations, and as the first one), lists the questions where hybrid gained or
+lost the right page, and lists every miss. The guard is the same in both
+modes, so they refuse the same questions.
 
 ### Results
 
@@ -180,5 +202,5 @@ of the count.
 
 Next steps, each to be measured by re-running this evaluation: keyword search
 (BM25) next to vector search, so exact terms like "WordPiece" or "30,000" are
-found; a cross-encoder reranker over the top 20; and a stronger embedding
-model.
+found (built: see Hybrid search; its numbers come from the next run); a
+cross-encoder reranker over the top 20; and a stronger embedding model.
