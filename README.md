@@ -42,12 +42,12 @@ for `main`.
 ## How it works
 
 ```
-PDF ─► PyMuPDF blocks ─► page-bounded chunks ─► MiniLM embeddings
+PDF ─► PyMuPDF blocks ─► page-bounded chunks ─► MiniLM embeddings + BM25 word index
                                                       │
                                                       ▼
-question ─► embed ─► FAISS (exact cosine) ─► top-k ─► guard ─► answer + citations
-                                                       │
-                                                       └─► abstain
+question ─┬─► embed ─► FAISS (exact cosine) ──┬─► merge the rankings (RRF) ─► top-k ─► answer + citations
+          └─► BM25 keyword scores ────────────┘
+          guard: best cosine below the threshold ─► abstain
 ```
 
 Chunks never cross a page boundary, which is what makes page-level citation
@@ -58,7 +58,7 @@ right one.
 
 ### Hybrid search
 
-`PAPERRAG_RETRIEVAL=hybrid` adds keyword search next to the embeddings. The
+Retrieval combines the embeddings with keyword search. The
 embedding model matches meaning, so it finds a passage that says the same
 thing in other words, but it is weaker at exact terms such as "WordPiece",
 "30,000" or "LayerNorm". BM25 (`app/bm25.py`) scores passages by the
@@ -66,10 +66,11 @@ question's words they contain, weighting rare words most. The two rankings
 are merged by reciprocal rank fusion: each gives a passage 1 / (60 + rank),
 and the shares add up, so no cosine score is ever compared with a BM25 score.
 
-The guard still uses the best embedding score, so both modes refuse exactly
-the same questions; only the cited pages differ. That makes the comparison in
-the evaluation clean. The default stays `dense` until the evaluation shows
-hybrid cites the right page more often.
+The guard still uses the best embedding score, so hybrid and embeddings alone
+(`PAPERRAG_RETRIEVAL=dense`) refuse exactly the same questions; only the cited
+pages differ. That makes the comparison in the evaluation clean: hybrid cited
+the right page for 24 of the 30 answered questions, embeddings alone for 19,
+so hybrid is the default.
 
 ## Design decisions
 
@@ -137,9 +138,9 @@ modes, so they refuse the same questions.
 
 ### Results
 
-Measured on the 8 papers above (905 chunks), with the threshold at 0.50.
-Latency is retrieval only, on an Apple-silicon MacBook Air, where the model
-runs on the GPU (`mps`).
+Measured on the 8 papers above (905 chunks), with the threshold at 0.50 and
+hybrid search. Latency is retrieval only, on an Apple-silicon MacBook Air,
+where the model runs on the GPU (`mps`).
 
 | Metric | Value |
 |---|---|
@@ -148,17 +149,45 @@ runs on the GPU (`mps`).
 | Unsupported answers, no guard | 33.3% (all 17 unanswerable questions get an answer) |
 | Unsupported answers, with guard | 5.9% (3 of 51) |
 | False refusal rate | 11.8% (4 of 34 answerable questions) |
-| Citation hit rate | 63.3% (19 of the 30 answered questions cite the right page) |
-| Retrieval latency | median 9.3 ms, p95 10.4 ms |
+| Citation hit rate | 80.0% (24 of the 30 answered questions cite the right page; 19 with embeddings alone) |
+| Right page cited first | 40.0% (12 of 30; 13 with embeddings alone) |
+| Retrieval latency | median 10.3 ms, p95 11.2 ms (9.2 and 10.2 ms with embeddings alone) |
 
 In one line: the guard refused 14 of the 17 unanswerable questions (none
-without it) and wrongly refused 4 of the 34 answerable ones.
+without it) and wrongly refused 4 of the 34 answerable ones, and hybrid
+search cited the right page for 24 of the 30 answered questions, up from 19
+with embeddings alone.
+
+### Hybrid search against embeddings alone
+
+`python -m eval.run_eval --threshold 0.50` runs both modes on the same
+questions. Same guard, so the same 30 questions get an answer:
+
+| Citations of the 30 answered questions | Embeddings alone | Hybrid |
+|---|---|---|
+| Right page among the 5 citations | 19 (63.3%) | **24 (80.0%)** |
+| Right page cited first | 13 (43.3%) | 12 (40.0%) |
+| Retrieval time, median / p95 | 9.2 / 10.2 ms | 10.3 / 11.2 ms |
+
+- **Hybrid found the right page for 6 more questions**, mostly ones that hinge
+  on an exact term: the Transformer paper's other name for self-attention
+  ("intra-attention"), the size of BERT's WordPiece vocabulary, ViT's position
+  embeddings and the pre-training the ViT authors leave for future work, what
+  attention in end-to-end memory networks is based on, and the applications
+  where zero-shot CLIP looks promising.
+- **It lost 1**: for the encoders that give T-MAD its best results, pages 8,
+  15 and 2 of the same paper pushed page 9 out of the five.
+- **The first citation got no better** (13 to 12). Keyword search widens what
+  makes the five; putting the best passage first is what a reranker is for.
+- The questions were drafted from the papers' own passages, so they share
+  words with the right page, which favours keyword search. Real users'
+  questions may share fewer, and the gain may be smaller.
 
 ### Choosing the threshold
 
 Selected rows of `python -m eval.run_eval --sweep`:
 
-| Threshold | Unsupported answers | False refusals | Citation hit rate |
+| Threshold | Unsupported answers | False refusals | Citation hit rate (embeddings alone) |
 |---|---|---|---|
 | 0.34 | 19.6% (10 of 17 unanswerable answered) | 0% | 61.8% |
 | 0.42 | 15.7% (8) | 0% | 61.8% |
@@ -193,14 +222,14 @@ of the count.
   the fusion methods compared with TMPT, the tokenizer MLLM-SD uses and where
   ViT puts LayerNorm. Each asks for one specific detail, and such questions
   score lower than broad ones.
-- **11 answers cited the wrong page**, usually the right paper but another
-  page of it, because an overview passage outranks the detail. One answer is
-  a sentence split across a page break (Transformer, pages 6 and 7), which
-  page-bounded chunks can't keep together. A few cited pages may also hold the
-  answer (ViT's appendix on position embeddings, for one), so the strict 63%
-  may understate retrieval a little.
+- **6 answers cited the wrong page** with hybrid search (11 with embeddings
+  alone), usually the right paper but another page of it. In 5 of the 6, the
+  five citations repeat a page: three chunks of T-MAD's page 15, for one,
+  leave fewer slots for other pages. One answer is a sentence split across a
+  page break (Transformer, pages 6 and 7), which page-bounded chunks can't
+  keep together.
 
-Next steps, each to be measured by re-running this evaluation: keyword search
-(BM25) next to vector search, so exact terms like "WordPiece" or "30,000" are
-found (built: see Hybrid search; its numbers come from the next run); a
-cross-encoder reranker over the top 20; and a stronger embedding model.
+Next steps, each to be measured by re-running this evaluation: cite five
+different pages instead of repeating one (5 of the 6 remaining misses repeat
+a page); a cross-encoder reranker over the top 20, to put the best passage
+first; and a stronger embedding model.

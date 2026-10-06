@@ -10,7 +10,7 @@ OFF_TOPIC = "What is a good recipe for chocolate cake with butter?"
 
 
 def test_best_matching_page_comes_first(built_index):
-    r = Retriever()(ON_TOPIC)
+    r = Retriever()(ON_TOPIC, mode="dense")  # dense ranks by similarity alone
     assert not r.abstain
     assert r.hits[0].citation() == "transformers.pdf p.2"
     scores = [h.score for h in r.hits]
