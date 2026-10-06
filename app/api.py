@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from .config import GEN_MODE, SIM_THRESHOLD, TOP_K
-from .generate import answer
+from .generate import LLMError, answer
 from .retrieve import Retriever
 
 _state: dict = {}
@@ -85,7 +85,10 @@ def health() -> dict:
 def ask(req: AskRequest) -> AskResponse:
     t0 = time.perf_counter()
     r = _retriever()(req.question, top_k=req.top_k, threshold=req.threshold)
-    result = answer(r, mode=req.mode)
+    try:
+        result = answer(r, mode=req.mode)
+    except LLMError as e:  # no key, a rejected key, or Mistral unreachable
+        raise HTTPException(502, str(e))
     return AskResponse(
         question=req.question,
         answer=result["answer"],

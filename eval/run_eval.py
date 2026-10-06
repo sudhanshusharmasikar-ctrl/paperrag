@@ -19,24 +19,30 @@ Check the file against your index before trusting any numbers:
 
 Then:
     python -m eval.run_eval --sweep
-to pick a threshold, and
+to pick a threshold,
     python -m eval.run_eval --threshold 0.50
-to produce the final table. It runs every question with three retrieval
-setups, each adding one change to the one before: dense (embeddings only),
-hybrid (embeddings plus BM25 keyword search) and hybrid with one chunk per
-page. The guard is the same in all three, so they refuse the same questions;
-the table shows how often each one cites the right page.
+to produce the final table, and
+    python -m eval.run_eval --threshold 0.50 --mistral
+to also run mistral mode on every question the score guard lets through.
+
+--threshold runs every question with three retrieval setups, each adding one
+change to the one before: dense (embeddings only), hybrid (embeddings plus
+BM25 keyword search) and hybrid with one chunk per page. The guard is the
+same in all three, so they refuse the same questions; the table shows how
+often each one cites the right page.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from pathlib import Path
 
 import numpy as np
 
-from app.config import DISTINCT_PAGES, RETRIEVAL_MODE, SIM_THRESHOLD, TOP_K
+from app.config import DISTINCT_PAGES, MISTRAL_API_KEY, MISTRAL_MODEL, RETRIEVAL_MODE, SIM_THRESHOLD, TOP_K
+from app.generate import LLMAuthError, LLMError, answer
 from app.index import get_model
 from app.retrieve import Retriever
 from eval.check_questions import with_evidence_pages
@@ -208,12 +214,109 @@ def print_comparison(results: list[tuple[str, dict]], device) -> None:
             print(f"  {q}\n      wanted {_pages(want)}; cited {_pages(got)}")
 
 
+# When Mistral gives no answer to this many questions in a row, something is
+# wrong for every question (a used-up limit, a model the plan doesn't allow).
+STOP_AFTER_NO_REPLY = 3
+
+
+def cited_pages(text: str, hits) -> set[tuple[str, int]]:
+    """The pages of the passages an answer cites as [1], [2] or [1, 3]."""
+    numbers = {int(n) for group in re.findall(r"\[(\d+(?:\s*,\s*\d+)*)\]", text)
+               for n in group.split(",")}
+    return {(hits[n - 1].source, hits[n - 1].page) for n in numbers if 1 <= n <= len(hits)}
+
+
+def evaluate_mistral(retriever: Retriever, rows: list[dict], threshold: float, top_k: int,
+                     ask=answer) -> dict:
+    """Mistral mode on every question the score guard lets through. Does its
+    second guard (INSUFFICIENT_CONTEXT) catch the unanswerable ones the score
+    guard missed, how many good questions does it refuse, and do its answers
+    cite the right page?"""
+    records = []
+    no_reply_in_a_row = 0
+    for r in rows:
+        res = retriever(r["question"], top_k=top_k, threshold=threshold)
+        if res.abstain:
+            continue  # the score guard refused it; mistral mode never sees it
+        rec = {"question": r["question"], "answerable": r["answerable"]}
+        try:
+            out = ask(res, mode="mistral")
+        except LLMAuthError:
+            raise  # a missing or rejected key fails every question: stop now
+        except LLMError as e:
+            rec.update(outcome="error", error=str(e))
+            records.append(rec)
+            no_reply_in_a_row += 1
+            if no_reply_in_a_row == STOP_AFTER_NO_REPLY:
+                raise LLMError(f"Mistral gave no answer to {STOP_AFTER_NO_REPLY} questions in a row, "
+                               f"so the results would mean nothing. The last error: {e}")
+            continue
+        no_reply_in_a_row = 0
+        if out["abstained"]:
+            rec["outcome"] = "refused"
+        else:
+            pages = cited_pages(out["answer"], res.hits)
+            want = {(p["source"], p["page"]) for p in r.get("expected_pages", [])}
+            rec.update(outcome="answered", answer=out["answer"], cited=sorted(pages),
+                       right_page=bool(pages & want) if want else None)
+        records.append(rec)
+
+    unans = [x for x in records if not x["answerable"]]
+    ans = [x for x in records if x["answerable"]]
+    answered = [x for x in ans if x["outcome"] == "answered"]
+    return {
+        "passed_unanswerable": len(unans),
+        "refused_unanswerable": sum(x["outcome"] == "refused" for x in unans),
+        "passed_answerable": len(ans),
+        "refused_answerable": sum(x["outcome"] == "refused" for x in ans),
+        "answered": len(answered),
+        "cite_a_passage": sum(bool(x["cited"]) for x in answered),
+        "cite_right_page": sum(x["right_page"] is True for x in answered),
+        "checked_pages": sum(x["right_page"] is not None for x in answered),
+        "no_reply": sum(x["outcome"] == "error" for x in records),
+        "records": records,
+    }
+
+
+def print_mistral(m: dict) -> None:
+    total = m["passed_unanswerable"] + m["passed_answerable"]
+    print(f"\nMistral mode ({MISTRAL_MODEL}) on the {total} questions the score guard let through:")
+    print(f"  unanswerable ones it refused (second guard)   {m['refused_unanswerable']} of {m['passed_unanswerable']}")
+    print(f"  answerable ones it refused                    {m['refused_answerable']} of {m['passed_answerable']}")
+    print(f"  answers that cite a passage, like [1]         {m['cite_a_passage']} of {m['answered']}")
+    print(f"  answers citing a passage from the right page  {m['cite_right_page']} of {m['checked_pages']}")
+    print(f"  no answer from Mistral                        {m['no_reply']}")
+    groups = [
+        ("Unanswerable questions Mistral still answered",
+         lambda x: not x["answerable"] and x["outcome"] == "answered"),
+        ("Answerable questions Mistral refused", lambda x: x["answerable"] and x["outcome"] == "refused"),
+        ("Answers that cite no passage from the right page",
+         lambda x: x["answerable"] and x["outcome"] == "answered" and x["right_page"] is False),
+        ("No answer from Mistral", lambda x: x["outcome"] == "error"),
+    ]
+    for title, keep in groups:
+        hits = [x for x in m["records"] if keep(x)]
+        print(f"\n{title} ({len(hits)}):")
+        for x in hits:
+            print(f"  {x['question']}")
+            if x.get("answer"):
+                print(f"      answer: {' '.join(x['answer'].split())[:240]}")
+            if x.get("cited"):
+                print(f"      cited: {_pages(x['cited'])}")
+            if x.get("error"):
+                print(f"      error: {x['error'][:200]}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--threshold", type=float, default=None)
     ap.add_argument("--top-k", type=int, default=TOP_K)
     ap.add_argument("--sweep", action="store_true")
+    ap.add_argument("--mistral", action="store_true",
+                    help="also run mistral mode on every question the score guard lets through")
     args = ap.parse_args()
+    if args.mistral and not MISTRAL_API_KEY:
+        raise SystemExit("MISTRAL_API_KEY is not set. Put it in .env (see README) and run again.")
 
     rows = load_questions()
     retriever = Retriever()
@@ -265,6 +368,12 @@ def main() -> None:
         f"the {last['answered_checked']} answered ones ({hybrid['cited_right_page']} with hybrid search "
         f"alone, {dense['cited_right_page']} with embeddings alone)"
     )
+
+    if args.mistral:
+        try:
+            print_mistral(evaluate_mistral(retriever, rows, thr, args.top_k))
+        except LLMError as e:  # a rejected key, or Mistral failing every question
+            raise SystemExit(f"\n{e}")
 
 
 if __name__ == "__main__":

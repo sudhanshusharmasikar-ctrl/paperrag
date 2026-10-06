@@ -30,9 +30,10 @@ pytest
 The tests run offline in a few seconds: a small bag-of-words embedder stands
 in for MiniLM, and the tests generate their own PDFs. They cover text cleaning
 and chunking, the index files, the abstention guard, BM25 and hybrid search,
-one chunk per page, answer formatting, the API, the eval arithmetic, the question checker,
-reading settings from `.env` and where the web page's threshold slider
-starts. Retrieval *quality* is
+one chunk per page, answer formatting, the Mistral client (against a fake
+server and a fake clock, so nothing is sent and nothing waits), the API, the
+eval arithmetic, the question checker, reading settings from `.env`, and where
+the web page's threshold slider and mode start. Retrieval *quality* is
 measured by `eval/run_eval.py`, not by these tests.
 
 GitHub Actions runs the same tests after every push, on Python 3.11 and 3.14
@@ -85,6 +86,25 @@ On the 51-question set it raised the answers citing the right page from 24
 to 26 of 30 and lost none, so it is on by default;
 `PAPERRAG_DISTINCT_PAGES=0` turns it off.
 
+### Mistral mode
+
+By default PaperRAG quotes the passages word for word (extractive mode). With
+a free Mistral key in `.env` and `PAPERRAG_GEN_MODE=mistral`, or the mode
+switch on the web page, Mistral writes a short answer from the passages
+instead, citing them as [1], [2]. It is told to use only the passages and to
+reply `INSUFFICIENT_CONTEXT` when they don't hold the answer, which PaperRAG
+turns into a refusal: a second guard, after the score guard.
+
+The default model is Codestral (`codestral-2508`): on the free plan this was
+built on, every request to `mistral-small-latest` was refused as over the
+rate limit. `MISTRAL_MODEL` picks another model your plan allows; the Limits
+page of Mistral's admin console lists them. Requests are spaced 1.1 seconds
+apart (`PAPERRAG_LLM_MIN_INTERVAL`), and a rate limit (429), a server error
+or a dropped connection is retried up to 4 times (`PAPERRAG_LLM_RETRIES`),
+waiting 1, 2, 4 and 8 seconds, or as long as Mistral's `Retry-After` header
+asks. A missing or rejected key stops at once. Every error quotes Mistral's
+own reason; the API returns it as a 502, and the web page shows it.
+
 ## Design decisions
 
 | Choice | Why | What was rejected |
@@ -136,7 +156,8 @@ The PDFs aren't in this repository. Put them in `data/pdfs/` (or point
 python -m app.index                          # index the papers
 python -m eval.check_questions               # answers are on their pages; no paper answers an unanswerable one
 python -m eval.run_eval --sweep              # pick a threshold
-python -m eval.run_eval --threshold 0.50     # final numbers, dense vs hybrid, and every miss
+python -m eval.run_eval --threshold 0.50     # final numbers, three setups, and every miss
+python -m eval.run_eval --threshold 0.50 --mistral   # the same, then mistral mode on top
 ```
 
 A citation counts as correct when it points to the page listed for the
@@ -151,6 +172,13 @@ page (among the 5 citations, and as the first one) and how many different
 pages it cites, lists the questions each change gained or lost, and lists
 every miss of the last setup. The guard is the same in all three, so they
 refuse the same questions.
+
+`--mistral` then sends every question the score guard lets through to
+Mistral, with the default search, and counts the unanswerable questions its
+second guard refuses, the answerable ones it refuses, and the answers whose
+[n] citations include a passage from the right page. It needs `MISTRAL_API_KEY`
+in `.env`, takes about a minute, and stops after 3 questions in a row get no
+answer, quoting Mistral's reason.
 
 ### Results
 
@@ -244,7 +272,8 @@ of the count.
   pre-training data and objectives, so a passage on the same topic scores
   high. A similarity threshold catches off-topic questions, not on-topic ones
   whose answer is missing; that is the job of the second guard
-  (`INSUFFICIENT_CONTEXT` in mistral mode), which this evaluation doesn't use.
+  (`INSUFFICIENT_CONTEXT` in mistral mode), which `--mistral` measures; its
+  numbers come from the next run.
 - **4 answerable questions were refused** (0.434 to 0.478): InfoNCE in CLIP,
   the fusion methods compared with TMPT, the tokenizer MLLM-SD uses and where
   ViT puts LayerNorm. Each asks for one specific detail, and such questions

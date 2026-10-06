@@ -89,8 +89,17 @@ SIM_THRESHOLD = float(os.getenv("PAPERRAG_SIM_THRESHOLD", 0.50))
 # "mistral"     -> calls the Mistral API. Needs MISTRAL_API_KEY.
 GEN_MODE = os.getenv("PAPERRAG_GEN_MODE", "extractive")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
-MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+# Codestral is the model your free plan allowed: every request to
+# mistral-small-latest was refused as over the rate limit (SchemaMind's
+# evaluation found this). Any chat model your plan lists on the Limits page
+# of Mistral's admin console works: set MISTRAL_MODEL.
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "codestral-2508")
 MAX_ANSWER_TOKENS = 400
+# The free plan limits requests per second, so calls are spaced at least this
+# far apart, and a rate limit (429), a server error or a dropped connection is
+# retried this many times, waiting 1, 2, 4 and 8 seconds.
+LLM_MIN_INTERVAL = float(os.getenv("PAPERRAG_LLM_MIN_INTERVAL", 1.1))
+LLM_RETRIES = int(os.getenv("PAPERRAG_LLM_RETRIES", 4))
 
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 PDF_DIR.mkdir(parents=True, exist_ok=True)
