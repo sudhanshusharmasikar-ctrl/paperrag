@@ -81,7 +81,9 @@ keeps only each page's best chunk, so the five citations are five different
 pages. It can't lose a page: the pages of the plain top five all stay, in the
 same order, and pages further down fill the slots repeats used to take. So
 the first citation doesn't change, and the right page can only be gained.
-It is off until the evaluation shows what it gains.
+On the 51-question set it raised the answers citing the right page from 24
+to 26 of 30 and lost none, so it is on by default;
+`PAPERRAG_DISTINCT_PAGES=0` turns it off.
 
 ## Design decisions
 
@@ -92,6 +94,7 @@ It is off until the evaluation shows what it gains.
 | Chunk at block level | Preserves page number and reading order | Fixed-size split over the whole document — destroys citability |
 | Threshold on top-1 | Mean-of-top-k drifts with k, making the threshold silently k-dependent | Mean or median scoring |
 | Reciprocal rank fusion for hybrid | Uses ranks only, so no tuning of how a cosine compares with a BM25 score | A weighted sum of normalised scores, one more knob to tune |
+| One chunk per page in the citations | Five different pages cover more ground, and no page the plain ranking cited is ever dropped | Several chunks of the best page, which repeat what the first one shows |
 | BM25 written in-house (40 lines) | No new dependency; every line is tested and explainable | `rank_bm25` — fine, but one more package for a short formula |
 | `extractive` default | Zero keys, zero cost, and a 100%-faithful control condition | LLM-only — no baseline to compare faithfulness against |
 
@@ -151,9 +154,9 @@ refuse the same questions.
 
 ### Results
 
-Measured on the 8 papers above (905 chunks), with the threshold at 0.50 and
-hybrid search. Latency is retrieval only, on an Apple-silicon MacBook Air,
-where the model runs on the GPU (`mps`).
+Measured on the 8 papers above (905 chunks), with the threshold at 0.50,
+hybrid search and one chunk per page. Latency is retrieval only, on an
+Apple-silicon MacBook Air, where the model runs on the GPU (`mps`).
 
 | Metric | Value |
 |---|---|
@@ -162,27 +165,29 @@ where the model runs on the GPU (`mps`).
 | Unsupported answers, no guard | 33.3% (all 17 unanswerable questions get an answer) |
 | Unsupported answers, with guard | 5.9% (3 of 51) |
 | False refusal rate | 11.8% (4 of 34 answerable questions) |
-| Citation hit rate | 80.0% (24 of the 30 answered questions cite the right page; 19 with embeddings alone) |
+| Citation hit rate | 86.7% (26 of the 30 answered questions cite the right page; 24 with hybrid search alone, 19 with embeddings alone) |
 | Right page cited first | 40.0% (12 of 30; 13 with embeddings alone) |
-| Retrieval latency | median 10.3 ms, p95 11.2 ms (9.2 and 10.2 ms with embeddings alone) |
+| Retrieval latency | median 11.6 ms, p95 12.5 ms (10.4 and 11.8 ms with embeddings alone, in the same run) |
 
 In one line: the guard refused 14 of the 17 unanswerable questions (none
 without it) and wrongly refused 4 of the 34 answerable ones, and hybrid
-search cited the right page for 24 of the 30 answered questions, up from 19
-with embeddings alone.
+search citing one chunk per page cited the right page for 26 of the 30
+answered questions, up from 19 with embeddings alone.
 
-### Hybrid search against embeddings alone
+### Three setups compared
 
-`python -m eval.run_eval --threshold 0.50` runs both modes on the same
-questions. Same guard, so the same 30 questions get an answer:
+`python -m eval.run_eval --threshold 0.50` runs every question with three
+setups, each adding one change to the one before. Same guard, so the same
+30 questions get an answer:
 
-| Citations of the 30 answered questions | Embeddings alone | Hybrid |
-|---|---|---|
-| Right page among the 5 citations | 19 (63.3%) | **24 (80.0%)** |
-| Right page cited first | 13 (43.3%) | 12 (40.0%) |
-| Retrieval time, median / p95 | 9.2 / 10.2 ms | 10.3 / 11.2 ms |
+| Citations of the 30 answered questions | Embeddings alone | Hybrid | Hybrid, 1 chunk per page |
+|---|---|---|---|
+| Right page among the 5 citations | 19 (63.3%) | 24 (80.0%) | **26 (86.7%)** |
+| Right page cited first | 13 (43.3%) | 12 (40.0%) | 12 (40.0%) |
+| Different pages cited (average) | 4.0 | 4.0 | 5.0 |
+| Retrieval time, median / p95 | 10.4 / 11.8 ms | 11.7 / 13.0 ms | 11.6 / 12.5 ms |
 
-- **Hybrid found the right page for 6 more questions**, mostly ones that hinge
+- **Hybrid search found the right page for 6 more questions**, mostly ones that hinge
   on an exact term: the Transformer paper's other name for self-attention
   ("intra-attention"), the size of BERT's WordPiece vocabulary, ViT's position
   embeddings and the pre-training the ViT authors leave for future work, what
@@ -190,8 +195,17 @@ questions. Same guard, so the same 30 questions get an answer:
   where zero-shot CLIP looks promising.
 - **It lost 1**: for the encoders that give T-MAD its best results, pages 8,
   15 and 2 of the same paper pushed page 9 out of the five.
-- **The first citation got no better** (13 to 12). Keyword search widens what
-  makes the five; putting the best passage first is what a reranker is for.
+- **One chunk per page found 2 more and lost none**, as it can't. One is that
+  T-MAD question, where three chunks of page 15 had taken three of the five
+  slots. The other asks when a self-attention layer is cheaper than a
+  recurrent one: page 6 of the Transformer paper had taken three slots, and
+  page 7, which has the answer, now gets one.
+- **The first citation got no better** (13, then 12 and 12). Keyword search
+  and one chunk per page widen what makes the five; putting the best passage
+  first is what a reranker is for.
+- Retrieval times vary by about a millisecond from run to run (the previous
+  run measured hybrid search at 10.3 ms), and every setup now ranks all the
+  chunks, which one chunk per page needs.
 - The questions were drafted from the papers' own passages, so they share
   words with the right page, which favours keyword search. Real users'
   questions may share fewer, and the gain may be smaller.
@@ -235,15 +249,15 @@ of the count.
   the fusion methods compared with TMPT, the tokenizer MLLM-SD uses and where
   ViT puts LayerNorm. Each asks for one specific detail, and such questions
   score lower than broad ones.
-- **6 answers cited the wrong page** with hybrid search (11 with embeddings
-  alone), usually the right paper but another page of it. In 5 of the 6, the
-  five citations repeat a page: three chunks of T-MAD's page 15, for one,
-  leave fewer slots for other pages. One answer is a sentence split across a
-  page break (Transformer, pages 6 and 7), which page-bounded chunks can't
-  keep together.
+- **4 answers cite the wrong page** (6 with hybrid search alone, 11 with
+  embeddings alone). Each now cites five different pages, mostly of the
+  right paper, but the page with the answer ranks below them: the hardware
+  BERT-Large was trained on (page 13 wanted; pages 14, 8, 3, 9 and 16
+  cited), the name of the new multi-turn stance dataset, the model that
+  writes MLLM-SD's image captions, and how ViT's classification head changes
+  for fine-tuning.
 
-Next steps, each to be measured by re-running this evaluation: cite five
-different pages instead of repeating one (5 of the 6 remaining misses repeat
-a page; built, see One chunk per page, and its numbers come from the next
-run); a cross-encoder reranker over the top 20, to put the best passage
-first; and a stronger embedding model.
+Next steps, each to be measured by re-running this evaluation: a
+cross-encoder reranker over the top 20, to put the best passage first (the
+first citation is right for 12 of the 30) and to reach the 4 pages still
+missed; and a stronger embedding model.

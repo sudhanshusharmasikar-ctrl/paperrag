@@ -66,9 +66,10 @@ RETRIEVAL_MODE = os.getenv("PAPERRAG_RETRIEVAL", "hybrid")
 # often come from the same page: in 5 of the 6 misses left after hybrid
 # search, one page took two or three of the five citations. Keeping only each
 # page's best chunk frees those slots for other pages. It never drops a page
-# the plain ranking cited and leaves the first citation as it was; the
-# evaluation measures what it gains.
-DISTINCT_PAGES = os.getenv("PAPERRAG_DISTINCT_PAGES", "0") != "0"
+# the plain ranking cited and leaves the first citation as it was. On the
+# 51-question set it raised the answers citing the right page from 24 to 26
+# of 30 and lost none (README, Evaluation), so it is on by default.
+DISTINCT_PAGES = os.getenv("PAPERRAG_DISTINCT_PAGES", "1") != "0"
 # Reciprocal rank fusion gives a passage 1 / (RRF_K + rank) from each ranking.
 # 60 comes from the paper that introduced it (Cormack et al., 2009) and is the
 # usual default: it keeps one list's first place from outweighing everything.
