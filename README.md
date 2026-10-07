@@ -105,6 +105,10 @@ waiting 1, 2, 4 and 8 seconds, or as long as Mistral's `Retry-After` header
 asks. A missing or rejected key stops at once. Every error quotes Mistral's
 own reason; the API returns it as a 502, and the web page shows it.
 
+Measured with `--mistral` (see Mistral mode on top), the second guard refused
+all 3 unanswerable questions that got past the score guard, so with both
+guards none of the 17 got an answer.
+
 ## Design decisions
 
 | Choice | Why | What was rejected |
@@ -196,11 +200,13 @@ Apple-silicon MacBook Air, where the model runs on the GPU (`mps`).
 | Citation hit rate | 86.7% (26 of the 30 answered questions cite the right page; 24 with hybrid search alone, 19 with embeddings alone) |
 | Right page cited first | 40.0% (12 of 30; 13 with embeddings alone) |
 | Retrieval latency | median 11.6 ms, p95 12.5 ms (10.4 and 11.8 ms with embeddings alone, in the same run) |
+| With mistral mode on top | 0 of 17 unanswerable questions answered; 6 of 34 answerable ones refused; 24 of the 28 answers cite the right page |
 
 In one line: the guard refused 14 of the 17 unanswerable questions (none
 without it) and wrongly refused 4 of the 34 answerable ones, and hybrid
 search citing one chunk per page cited the right page for 26 of the 30
-answered questions, up from 19 with embeddings alone.
+answered questions, up from 19 with embeddings alone. With mistral mode's
+second guard on top, none of the 17 unanswerable questions got an answer.
 
 ### Three setups compared
 
@@ -231,9 +237,40 @@ setups, each adding one change to the one before. Same guard, so the same
 - **The first citation got no better** (13, then 12 and 12). Keyword search
   and one chunk per page widen what makes the five; putting the best passage
   first is what a reranker is for.
-- Retrieval times vary by about a millisecond from run to run (the previous
-  run measured hybrid search at 10.3 ms), and every setup now ranks all the
-  chunks, which one chunk per page needs.
+- Retrieval times vary from run to run on the same Mac (medians from 9 to
+  17 ms so far), so compare setups within one run. Every setup now ranks all
+  the chunks, which one chunk per page needs.
+
+### Mistral mode on top
+
+`--mistral` sent the 33 questions the score guard let through (30 answerable,
+3 unanswerable) to Codestral, with hybrid search and one chunk per page:
+
+| | Result |
+|---|---|
+| Unanswerable questions its second guard refused | **3 of 3** |
+| Answerable questions it refused | 2 of 30 |
+| Answers that cite a passage, like [1] | 28 of 28 |
+| Answers whose citations include the right page | 24 of 28 |
+
+- **The two guards together refused all 17 unanswerable questions**: the
+  score guard 14, and the second guard the 3 it let through (LAION-5B, T5's
+  dataset, XLNet's objective). The price is 6 refused answerable questions
+  instead of 4.
+- **Both answerable questions Mistral refused had no passage from the right
+  page**: BERT-Large's training hardware and the model that writes MLLM-SD's
+  captions are two of the 4 retrieval misses above, so refusing was the
+  honest reply to the passages it got.
+- **Of the 4 answers that cite no right page, 2 are right** but cite another
+  page that says the same thing: the dataset is MmMtCSD (page 1 of its
+  paper), and ViT's two-layer head is swapped for one linear layer (an
+  appendix page). **The other 2 are wrong although the right passage was
+  among the five**: it gave "scaled dot-product attention" as the
+  Transformer paper's other name for self-attention, which is
+  "intra-attention", and said self-attention is cheaper for long sequences,
+  when the paper says it is cheaper when the sequence is shorter than the
+  representation size. Reading the right passage is a matter of the model,
+  which `MISTRAL_MODEL` changes.
 - The questions were drafted from the papers' own passages, so they share
   words with the right page, which favours keyword search. Real users'
   questions may share fewer, and the gain may be smaller.
@@ -272,8 +309,8 @@ of the count.
   pre-training data and objectives, so a passage on the same topic scores
   high. A similarity threshold catches off-topic questions, not on-topic ones
   whose answer is missing; that is the job of the second guard
-  (`INSUFFICIENT_CONTEXT` in mistral mode), which `--mistral` measures; its
-  numbers come from the next run.
+  (`INSUFFICIENT_CONTEXT` in mistral mode), which refused all three (see
+  Mistral mode on top).
 - **4 answerable questions were refused** (0.434 to 0.478): InfoNCE in CLIP,
   the fusion methods compared with TMPT, the tokenizer MLLM-SD uses and where
   ViT puts LayerNorm. Each asks for one specific detail, and such questions
